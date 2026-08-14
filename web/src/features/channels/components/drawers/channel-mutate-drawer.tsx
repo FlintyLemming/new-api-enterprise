@@ -287,6 +287,7 @@ const SENSITIVE_FORM_FIELDS = [
   'proxy',
   'http_protocol',
   'http2_connection_shards',
+  'cache_prompt_token_semantic',
   'pass_through_body_enabled',
   'system_prompt',
   'system_prompt_override',
@@ -346,6 +347,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     (values.http_protocol && values.http_protocol !== 'auto') ||
     (values.http2_connection_shards != null &&
       values.http2_connection_shards > 1) ||
+    (values.cache_prompt_token_semantic &&
+      values.cache_prompt_token_semantic !== 'auto') ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
     values.upstream_model_update_auto_sync_enabled ||
@@ -757,6 +760,9 @@ export function ChannelMutateDrawer({
   const currentProxy = form.watch('proxy')
   const currentHttpProtocol = form.watch('http_protocol')
   const currentHttp2ConnectionShards = form.watch('http2_connection_shards')
+  const currentCachePromptTokenSemantic = form.watch(
+    'cache_prompt_token_semantic'
+  )
   const currentSystemPrompt = form.watch('system_prompt')
   const currentSystemPromptOverride = form.watch('system_prompt_override')
   const currentAllowServiceTier = form.watch('allow_service_tier')
@@ -1029,7 +1035,10 @@ export function ChannelMutateDrawer({
     currentSystemPrompt?.trim() ||
     currentSystemPromptOverride ||
     (currentHttpProtocol && currentHttpProtocol !== 'auto') ||
-    (currentHttp2ConnectionShards != null && currentHttp2ConnectionShards > 1)
+    (currentHttp2ConnectionShards != null &&
+      currentHttp2ConnectionShards > 1) ||
+    (currentCachePromptTokenSemantic &&
+      currentCachePromptTokenSemantic !== 'auto')
   )
   let fieldPassthroughConfigured = false
   if (currentType === 1 || currentType === 57) {
@@ -4205,6 +4214,71 @@ export function ChannelMutateDrawer({
 
                             <FormField
                               control={form.control}
+                              name='cache_prompt_token_semantic'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('Prompt cache token semantic')}
+                                  </FormLabel>
+                                  <Select
+                                    items={[
+                                      {
+                                        value: 'auto',
+                                        label: t(
+                                          'Auto (follow usage semantic)'
+                                        ),
+                                      },
+                                      {
+                                        value: 'prompt_includes_cache',
+                                        label: t(
+                                          'Upstream prompt tokens include cache (prompt_includes_cache)'
+                                        ),
+                                      },
+                                      {
+                                        value: 'prompt_excludes_cache',
+                                        label: t(
+                                          'Upstream prompt tokens exclude cache (prompt_excludes_cache)'
+                                        ),
+                                      },
+                                    ]}
+                                    value={field.value || 'auto'}
+                                    onValueChange={field.onChange}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent alignItemWithTrigger={false}>
+                                      <SelectGroup>
+                                        <SelectItem value='auto'>
+                                          {t('Auto (follow usage semantic)')}
+                                        </SelectItem>
+                                        <SelectItem value='prompt_includes_cache'>
+                                          {t(
+                                            'Upstream prompt tokens include cache (prompt_includes_cache)'
+                                          )}
+                                        </SelectItem>
+                                        <SelectItem value='prompt_excludes_cache'>
+                                          {t(
+                                            'Upstream prompt tokens exclude cache (prompt_excludes_cache)'
+                                          )}
+                                        </SelectItem>
+                                      </SelectGroup>
+                                    </SelectContent>
+                                  </Select>
+                                  <FormDescription>
+                                    {t(
+                                      'Whether the upstream counts cached prompt tokens inside prompt_tokens. Auto-detect follows usage semantic.'
+                                    )}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
                               name='proxy'
                               render={({ field }) => (
                                 <FormItem>
@@ -4266,9 +4340,7 @@ export function ChannelMutateDrawer({
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='auto'>
                                           {t('Auto')}
