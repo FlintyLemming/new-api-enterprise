@@ -39,29 +39,36 @@ func appendToolSurchargeLogInfo(other map[string]interface{}, items []ToolSurcha
 }
 
 type textQuotaSummary struct {
-	PromptTokens           int
-	CompletionTokens       int
-	TotalTokens            int
-	CacheTokens            int
-	CacheCreationTokens    int
-	CacheCreationTokens5m  int
-	CacheCreationTokens1h  int
-	ImageTokens            int
-	AudioTokens            int
-	ModelName              string
-	TokenName              string
-	UseTimeSeconds         int64
-	CompletionRatio        float64
-	CacheRatio             float64
-	ImageRatio             float64
-	ModelRatio             float64
-	GroupRatio             float64
-	ModelPrice             float64
-	CacheCreationRatio     float64
-	CacheCreationRatio5m   float64
-	CacheCreationRatio1h   float64
-	Quota                  int
-	IsClaudeUsageSemantic  bool
+	PromptTokens          int
+	CompletionTokens      int
+	TotalTokens           int
+	CacheTokens           int
+	CacheCreationTokens   int
+	CacheCreationTokens5m int
+	CacheCreationTokens1h int
+	ImageTokens           int
+	AudioTokens           int
+	ModelName             string
+	TokenName             string
+	UseTimeSeconds        int64
+	CompletionRatio       float64
+	CacheRatio            float64
+	ImageRatio            float64
+	ModelRatio            float64
+	GroupRatio            float64
+	ModelPrice            float64
+	CacheCreationRatio    float64
+	CacheCreationRatio5m  float64
+	CacheCreationRatio1h  float64
+	Quota                 int
+	IsClaudeUsageSemantic bool
+	// UpstreamPromptTokensIncludeCache is the raw upstream prompt token caliber
+	// before any fold (channel declaration takes priority). Consumed only by
+	// tiered billing.
+	UpstreamPromptTokensIncludeCache bool
+	// InputExcludesCache is the actual caliber of the folded summary.PromptTokens.
+	// Consumed only by telemetry.
+	InputExcludesCache     bool
 	UsageSemantic          string
 	AudioInputPrice        float64
 	ToolSurchargeItems     []ToolSurchargeItem
@@ -85,6 +92,41 @@ func cacheWriteTokensTotal(summary textQuotaSummary) int {
 		return splitCacheWriteTokens
 	}
 	return summary.CacheCreationTokens
+}
+
+const (
+	cacheSemanticIncludes = "prompt_includes_cache"
+	cacheSemanticExcludes = "prompt_excludes_cache"
+)
+
+// resolvePromptCacheInclusion reports whether the raw upstream prompt tokens
+// include cache read/write counts. A channel's cache_prompt_token_semantic
+// declaration takes priority over usage-semantic auto-detection.
+func resolvePromptCacheInclusion(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) (promptTokensIncludeCache bool, declaredCacheSemantic bool) {
+	if relayInfo.HasChannelMeta() {
+		switch relayInfo.ChannelMeta.ChannelSetting.CachePromptTokenSemantic {
+		case cacheSemanticIncludes:
+			return true, true
+		case cacheSemanticExcludes:
+			return false, true
+		}
+	}
+	// 自动判定:Anthropic 语义与 legacy Claude-derived OpenAI 均为 exclusive 口径。
+	if usage != nil && usage.UsageSemantic == "anthropic" {
+		return false, false
+	}
+	if isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage) {
+		return false, false
+	}
+	if usage != nil && usage.UsageSemantic == "openai" {
+		return true, false
+	}
+	// semantic 未标注时沿用现有计费口径:非 Claude relay format 视为 inclusive,
+	// Claude relay format 视为 exclusive(与 usageSemanticFromUsage 的推导一致)。
+	if usage != nil && relayInfo.GetFinalRequestRelayFormat() == types.RelayFormatClaude {
+		return false, false
+	}
+	return true, false
 }
 
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
@@ -268,6 +310,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
 		summary.IsClaudeUsageSemantic
 
+	promptTokensIncludeCache, declaredCacheSemantic := resolvePromptCacheInclusion(relayInfo, usage)
+	summary.UpstreamPromptTokensIncludeCache = promptTokensIncludeCache
+
 	if isOpenRouterClaudeBilling {
 		summary.PromptTokens -= summary.CacheTokens
 		isUsingCustomSettings := relayInfo.PriceData.UsePrice || hasCustomModelRatio(summary.ModelName, relayInfo.PriceData.ModelRatio)
@@ -278,7 +323,18 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			}
 		}
 		summary.PromptTokens -= summary.CacheCreationTokens
+		promptTokensIncludeCache = false
 	}
+
+	if promptTokensIncludeCache && declaredCacheSemantic {
+		summary.PromptTokens -= summary.CacheTokens
+		summary.PromptTokens -= summary.CacheCreationTokens
+		if summary.PromptTokens < 0 {
+			summary.PromptTokens = 0
+		}
+		promptTokensIncludeCache = false
+	}
+	summary.InputExcludesCache = !promptTokensIncludeCache
 
 	dPromptTokens := decimal.NewFromInt(int64(summary.PromptTokens))
 	dCacheTokens := decimal.NewFromInt(int64(summary.CacheTokens))
@@ -306,7 +362,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		var cachedTokensWithRatio decimal.Decimal
 		if !dCacheTokens.IsZero() {
-			if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
+			if promptTokensIncludeCache {
 				baseTokens = baseTokens.Sub(dCacheTokens)
 			}
 			cachedTokensWithRatio = dCacheTokens.Mul(dCacheRatio)
@@ -315,10 +371,13 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		var cachedCreationTokensWithRatio decimal.Decimal
 		hasSplitCacheCreationTokens := summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0
 		if !dCachedCreationTokens.IsZero() || hasSplitCacheCreationTokens {
-			if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
+			switch {
+			case promptTokensIncludeCache:
+				// inclusive 原始口径:从 base tokens 扣减并按扁平 cache creation 倍率计价(现状)。
 				baseTokens = baseTokens.Sub(dCachedCreationTokens)
 				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
-			} else {
+			case summary.IsClaudeUsageSemantic || legacyClaudeDerived:
+				// Claude 档位:prompt 已 exclusive,不扣 base;按通用/5m/1h 拆分倍率计价(现状)。
 				remaining := summary.CacheCreationTokens - summary.CacheCreationTokens5m - summary.CacheCreationTokens1h
 				if remaining < 0 {
 					remaining = 0
@@ -326,6 +385,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 				cachedCreationTokensWithRatio = decimal.NewFromInt(int64(remaining)).Mul(dCacheCreationRatio)
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens5m)).Mul(dCacheCreationRatio5m))
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens1h)).Mul(dCacheCreationRatio1h))
+			default:
+				// 声明 prompt_excludes_cache 的非 Claude 渠道:不扣 base,按扁平倍率计价。
+				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
 			}
 		}
 
