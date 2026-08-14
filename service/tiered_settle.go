@@ -22,7 +22,13 @@ type TieredResultWrapper = billingexpr.TieredResult
 // include all sub-categories (cache, image, audio). Claude-format APIs
 // report them as text-only. This function normalizes to text-only when
 // sub-categories are separately priced.
-func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVars map[string]bool) billingexpr.TokenParams {
+//
+// promptTokensIncludeCache reports whether the raw upstream prompt tokens
+// include cache read/write counts. Subtractions from P only apply when it
+// is true; when the upstream already reports an exclusive caliber, cache
+// tokens are not part of P and must not be subtracted again. It has no
+// effect under Claude usage semantics.
+func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, promptTokensIncludeCache bool, usedVars map[string]bool) billingexpr.TokenParams {
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)
 	cr := float64(usage.PromptTokensDetails.CachedTokens)
@@ -48,20 +54,25 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	}
 
 	if !isClaudeUsageSemantic {
-		if usedVars["cr"] {
-			p -= cr
-		}
-		if usedVars["cc"] {
-			p -= cc5m
-		}
-		if usedVars["cc1h"] {
-			p -= cc1h
-		}
-		if usedVars["img"] {
-			p -= img
-		}
-		if usedVars["ai"] {
-			p -= ai
+		// Subtract sub-buckets from P only when the raw upstream prompt
+		// actually includes them; an exclusive caliber already excluded
+		// cache/image/audio counts from prompt_tokens.
+		if promptTokensIncludeCache {
+			if usedVars["cr"] {
+				p -= cr
+			}
+			if usedVars["cc"] {
+				p -= cc5m
+			}
+			if usedVars["cc1h"] {
+				p -= cc1h
+			}
+			if usedVars["img"] {
+				p -= img
+			}
+			if usedVars["ai"] {
+				p -= ai
+			}
 		}
 		if usedVars["img_o"] {
 			c -= imgO
