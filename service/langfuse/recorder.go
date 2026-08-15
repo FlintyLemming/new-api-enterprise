@@ -156,6 +156,10 @@ type Recorder struct {
 	active   *attemptValue
 	frozen   bool
 	finished bool
+	// lifecyclePanic records that a business panic unwound through the
+	// finalizer, which marks the root failed and the active attempt closed
+	// without a handler return.
+	lifecyclePanic bool
 
 	userId  int
 	tokenId int

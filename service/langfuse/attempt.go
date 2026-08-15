@@ -83,7 +83,14 @@ func EndAttempt(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAP
 			warnCapture(fmt.Sprintf("end_attempt_panic: %T", recovered))
 		}
 	}()
+	closeActiveAttempt(recorder, c, info, apiErr, AttemptEndHandlerReturned)
+}
 
+// closeActiveAttempt takes the immutable end snapshot of the active attempt.
+// The end reason distinguishes the normal handler return from the defensive
+// close a lifecycle panic performs; everything else is identical, because a
+// panicked attempt is just as real as a returned one.
+func closeActiveAttempt(recorder *Recorder, c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAPIError, reason string) {
 	// The end time is taken before any attribute work or lock contention.
 	end := recorder.now()
 
@@ -114,7 +121,7 @@ func EndAttempt(c *gin.Context, info *relaycommon.RelayInfo, apiErr *types.NewAP
 	attempt.UpstreamRelayFormat = upstreamFormat
 	attempt.UpstreamRequestID = upstreamRequestID
 	attempt.GeminiFinal = geminiFinal
-	attempt.EndReason = AttemptEndHandlerReturned
+	attempt.EndReason = reason
 	if apiErr != nil {
 		attempt.ErrCode = string(apiErr.GetErrorCode())
 		attempt.ErrMessage = apiErr.MaskSensitiveErrorWithStatusCode()
