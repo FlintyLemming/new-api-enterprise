@@ -19,7 +19,7 @@
 - Create: `service/langfuse/otlp_envelope_test.go`
 
 - [ ] **Step 1: 测试内容**：
-  1. 用满足整组校验的边界配置（`max_content_bytes=1MiB, max_response_bytes=64KiB, queue=16, batch=1` 与 `max_content_bytes=4KiB, max_response_bytes=8MiB, queue=16, batch=1` 两组）分别构造**最大 root span**（input/output 各接近 `max_content_bytes` 的最坏转义正文：不可压缩 ASCII、全引号/反斜杠/控制字符、多字节 UTF-8 三种素材）与**满 batch**（`batch_size` 个同类 span）。
+  1. 用满足整组校验的边界配置（`max_content_bytes=4MiB, max_response_bytes=64KiB, queue=16, batch=1` 与 `max_content_bytes=4KiB, max_response_bytes=8MiB, queue=16, batch=1` 两组）分别构造**最大 root span**（input/output 各接近 `max_content_bytes` 的最坏转义正文：不可压缩 ASCII、全引号/反斜杠/控制字符、多字节 UTF-8 三种素材）与**满 batch**（`batch_size` 个同类 span）。
   2. 经真实 exporter 发送（httptest 接收），服务端解 gzip、用 `proto/otlp` 解码：断言结构化 input/output 均为合法 JSON、逐属性 `jsonEscapedLen` 贡献 ≤ `max_content_bytes`、配置包络 `2*content+response <= 9_000_000`。
   3. 记录（`t.Logf`）实际 protobuf 与 gzip 字节数作为 ingress body-limit 配置依据；断言不把 protobuf 大小冒充 `JSON.stringify(span)` eventBytes（即测试只声明 wire 实测，不断言 9,500,000 阈值行为）。
   4. 正文与凭证不得进入测试日志（`t.Logf` 只打字节数与属性名）。

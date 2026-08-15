@@ -581,6 +581,23 @@ trace `bb953dab784d31e61c5935c1f65f8835`，root `714f444a97aa92ba`：
    一定会开始命中 `content_truncated=true`。这是设计内行为，降采样前建议确认
    下游消费方能接受截断语义；如需保全长上下文，应显式调高该值而不是等它静默截断。
 
+   > **2026-08-15 事后更正（重要）**：上面这段"当前 0 条触发截断"是**错的**，
+   > 结论建立在读错标志上。`content_truncated` 是**响应/聚合侧**的截断标志；
+   > 请求正文的截断标志是 `input_scan_truncated`（`begin.go` 用
+   > `io.ReadAll(io.LimitReader(reader, limit+1))` 读 body，超出即切到
+   > `max_content_bytes` 并置该标志）。按 `input_scan_truncated` 复查同期数据：
+   > 6 小时窗口内 115 条 root span 有 **44 条（38%）输入被截断**，其中
+   > `llm-prime` 15/15 全部截断。根因是该部署的真实流量是长上下文的
+   > （7 天 118,932 条请求，prompt 中位数 73,489 token、p90 228,349、最大 716,721）。
+   >
+   > 处置：`max_content_bytes` 先提到 1 MiB（截断降到约 7.8%），因审计要求
+   > "不得遗漏任何请求内容"，随后把代码里的 per-field 上限从 1 MiB 抬到 4 MiB
+   > （commit `02dc4189`），运行时配置改为 content=4 MiB / response=512 KiB /
+   > queue=128 / batch=4 / in_flight=8 GiB，并把 `sample_rate` 从 0.1 改回 **1.0**
+   > （审计场景须全采集）。实测 4.49 字节/token，4 MiB ≈ 93 万 token，
+   > 覆盖真实流量最大值 71.7 万 token。压测验证见
+   > `docs/internal/patches/2026-08-15-langfuse-local-deployment.md` §7。
+
 3. **`langfuse.internal.as_root` 未被 Langfuse 采纳为 `is_app_root`**：
    我们写的是字符串 `"true"`，ClickHouse `events_core.is_app_root` 实测恒为 `false`
    （84/84）。当前无影响——root 的 `parent_span_id` 为空，命中判定式

@@ -1227,7 +1227,7 @@ Langfuse；不得由前端自动提交未确认的 0.1/false。已启用后的�
 - Environment 匹配 `^[a-z0-9_-]{1,40}$` 且不能以 `langfuse` 开头；
 - Sample Rate 位于 `[0,1]`；
 - size、queue、batch、interval 使用保守的明确单项上下限，且 batch 不得大于 queue；
-  `max_content_bytes` 范围为 4 KiB 到 1 MiB，默认 64 KiB，使隐私敏感部署可把单项内容收紧到 4–16 KiB；
+  `max_content_bytes` 范围为 4 KiB 到 4 MiB（2026-08-15 由 1 MiB 上调，见 `docs/internal/patches/2026-08-15-langfuse-local-deployment.md`），默认 64 KiB，使隐私敏感部署可把单项内容收紧到 4–16 KiB；
   `max_response_bytes` 范围为 64 KiB 到 8 MiB，默认 512 KiB；`queue_size` 范围为 16–256 spans，默认 64；
   `batch_size` 范围为 1–32 spans，默认 16。
   这些是每个字段独立可达的范围，不表示所有最大值可以同时使用；整组还必须通过下面的 tuple 校验。
@@ -1240,7 +1240,7 @@ Langfuse；不得由前端自动提交未确认的 0.1/false。已启用后的�
   span warning 留出 envelope 余量；后者限制 New API BSP queue、当前 batch 和编码/压缩缓冲的本地正文规划，
   不代表精确 heap 上限。该 tuple 允许每一个声明的字段上限在其他字段取较小值时单独通过，例如
   `max_response_bytes=8 MiB` 可配 `max_content_bytes=4 KiB, queue_size=16, batch_size=1`，
-  `max_content_bytes=1 MiB` 也可配最小 response/queue/batch；因此 API/UI 不会展示永远不可达的上限。管理员
+  `max_content_bytes=4 MiB` 也可配最小 response/queue/batch；因此 API/UI 不会展示永远不可达的上限。管理员
   提高 content/response 后可能需要降低 queue/batch 才能通过整组校验；
 - Langfuse 对十进制 9,500,000 字节单 span 和 16 MiB 解压后 request 的行为都只是 warning/metric，不是
   rejection。配置不提供 `max_otlp_request_bytes`，exporter 不按 wire size 拆分 batch。生产部署必须根据

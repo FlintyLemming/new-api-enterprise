@@ -122,14 +122,14 @@ Host 表：
 | 用例 | 期望 |
 |---|---|
 | 默认值配置 | 通过；reservation=640 KiB；max_queued_span_bytes=65536*2+524288=655360 ≤ 9,000,000；(64+3*16)*655360 ≤ 256 MiB |
-| `max_content_bytes=4095` / `=1048577` | 拒绝（范围 4096–1048576） |
+| `max_content_bytes=4095` / `=4194305` | 拒绝（范围 4096–4194304） |
 | `max_response_bytes=65535` / `=8388609` | 拒绝（65536–8388608） |
 | `max_session_body_bytes=1023` / `=65537` | 拒绝（1024–65536） |
 | `queue_size=15` / `=257`；`batch_size=0` / `=33`；`batch_size>queue_size` | 拒绝（16–256 / 1–32 / batch≤queue） |
 | `flush_interval_seconds=0` / `=301` | 拒绝（1–300，本计划新增的保守界，写进测试注释） |
-| `max_content_bytes=1048576` + response=65536, queue=16, batch=1 | 通过（单项上限可达性） |
+| `max_content_bytes=4194304` + response=65536, queue=16, batch=1 | 通过（单项上限可达性） |
 | `max_response_bytes=8388608` + content=4096, queue=16, batch=1 | 通过（mqs=8*1024*1024+8192 ≤ 9,000,000） |
-| `max_content_bytes=1048576, max_response_bytes=8388608` | 拒绝（mqs > 9,000,000） |
+| `max_content_bytes=4194304, max_response_bytes=8388608` | 拒绝（mqs > 9,000,000） |
 | `max_in_flight_capture_bytes <= reservation` | 拒绝（必须严格 ≥ reservation） |
 | `sample_rate=-0.1` / `=1.1`；`environment=''` / `='Langfuse-prod'`（langfuse 前缀）/ `='A_b'`（大写）/ 41 字符 | 拒绝；`sample_rate=0` 与 `=1` 通过 |
 | `enabled=true` 且 public/secret 任一为空 | 拒绝 |
