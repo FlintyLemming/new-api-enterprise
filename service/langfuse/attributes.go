@@ -20,6 +20,8 @@ const (
 	attrObservationMetadata = "langfuse.observation.metadata"
 	attrModelParameters     = "langfuse.observation.model.parameters"
 	attrModelName           = "langfuse.observation.model.name"
+	attrUsageDetails        = "langfuse.observation.usage_details"
+	attrCostDetails         = "langfuse.observation.cost_details"
 	attrCompletionStartTime = "langfuse.observation.completion_start_time"
 	attrInternalAsRoot      = "langfuse.internal.as_root"
 	attrEnvironment         = "langfuse.environment"
@@ -200,18 +202,29 @@ func buildGenerationAttributes(attempt *attemptValue, material *recorderMaterial
 	if params := buildModelParams(material); params != "" {
 		attributes = append(attributes, attribute.String(attrModelParameters, params))
 	}
+	usage := buildUsageExport(attempt)
+	exportedUsage := false
+	if len(usage.Buckets) > 0 {
+		if encoded, err := common.Marshal(usage.Buckets); err == nil {
+			attributes = append(attributes, attribute.String(attrUsageDetails, string(encoded)))
+			exportedUsage = true
+		}
+	}
+	if usage.HasCost {
+		attributes = append(attributes, attribute.String(attrCostDetails, usage.Cost))
+	}
 	// Design §6.2: naming the model without an authoritative cost lets Langfuse
 	// price the generation from its model catalogue, so the name is only
 	// allowed when a cost exists, or when there is no usage and the span
 	// already failed.
-	if allowModelName(false, false, attemptFailed(attempt)) && attempt.UpstreamModel != "" {
+	if allowModelName(usage.HasCost, exportedUsage, attemptFailed(attempt)) && attempt.UpstreamModel != "" {
 		attributes = append(attributes, attribute.String(attrModelName, attempt.UpstreamModel))
 	}
 	if !attempt.FirstResponseTime.IsZero() {
 		attributes = append(attributes, attribute.String(attrCompletionStartTime,
 			attempt.FirstResponseTime.UTC().Format(time.RFC3339Nano)))
 	}
-	if metadata := encodeMetadata(buildGenerationMetadata(attempt, material)); metadata != "" {
+	if metadata := encodeMetadata(buildGenerationMetadata(attempt, material, usage)); metadata != "" {
 		attributes = append(attributes, attribute.String(attrObservationMetadata, metadata))
 	}
 	return attributes
@@ -262,6 +275,12 @@ func buildRootMetadata(material *recorderMaterial, content *materializedContent)
 		metadata["quota"] = material.Settlement.Quota
 		metadata["billing_source"] = material.Settlement.BillingSource
 	}
+	if material.UsageUnattributed {
+		// A settlement without an attempt to own it is reported here; the usage
+		// itself is dropped rather than attributed to the root.
+		metadata["usage_unattributed"] = true
+		metadata["usage_omitted_reason"] = UsageOmittedNoActiveAttempt
+	}
 
 	metadata["content_truncated"] = material.Capture.Truncated
 	metadata["content_redacted"] = content != nil && content.Redacted
@@ -282,7 +301,7 @@ func buildRootMetadata(material *recorderMaterial, content *materializedContent)
 }
 
 // buildGenerationMetadata is the §8.2 attempt level summary.
-func buildGenerationMetadata(attempt *attemptValue, material *recorderMaterial) map[string]any {
+func buildGenerationMetadata(attempt *attemptValue, material *recorderMaterial, usage usageExport) map[string]any {
 	metadata := map[string]any{
 		"attempt_index": attempt.Index,
 		"channel_id":    attempt.ChannelID,
@@ -302,8 +321,40 @@ func buildGenerationMetadata(attempt *attemptValue, material *recorderMaterial) 
 	putNonEmpty(metadata, "selected_group", attempt.SelectedGroup)
 	putNonEmpty(metadata, "upstream_relay_format", attempt.UpstreamRelayFormat)
 	putNonEmpty(metadata, "upstream_request_id", attempt.UpstreamRequestID)
+	// The real model stays in metadata even when the model identity attributes
+	// must be omitted, so a reader can still tell what ran.
 	putNonEmpty(metadata, "upstream_model", attempt.UpstreamModel)
 	putNonEmpty(metadata, "origin_model", attempt.OriginModel)
+
+	if usage.HasCost {
+		metadata["cost_source"] = "new_api_settlement"
+	} else {
+		metadata["cost_source"] = "unavailable"
+		reason := costOmittedReason(attempt)
+		metadata["cost_omitted_reason"] = reason
+		switch reason {
+		case CostOmittedSettlementFailed:
+			metadata["settlement_error"] = true
+		case CostOmittedNoBillableUsage:
+			// A billing session that closed with nothing to charge is a normal
+			// omission, not a settlement error.
+			metadata["settlement_error"] = false
+		}
+	}
+	if usage.Record != nil {
+		putNonEmpty(metadata, "billing_source", usage.Record.BillingSource)
+	}
+
+	putNonEmpty(metadata, "usage_omitted_reason", usage.OmitReason)
+	switch usage.OmitReason {
+	case UsageOmittedInvalidSource, UsageOmittedOverflow:
+		metadata["usage_invalid"] = true
+	case UsageOmittedSemanticUnknown:
+		metadata["usage_semantic_unknown"] = true
+	}
+	for _, flag := range usage.Flags {
+		metadata[flag] = true
+	}
 	return metadata
 }
 

@@ -1,6 +1,7 @@
 package langfuse
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -185,7 +186,9 @@ type Recorder struct {
 
 	session      SessionIdentity
 	captureState string
-	settlement   *settlementSummary
+	// usageUnattributed records that a settlement arrived without an attempt to
+	// own it, which is the documented degradation of the bypass paths.
+	usageUnattributed bool
 
 	modelParams map[string]any
 
@@ -199,6 +202,37 @@ func (r *Recorder) now() time.Time {
 		return time.Now()
 	}
 	return r.clock()
+}
+
+// RecordUsage attributes one settlement result to the attempt that produced it.
+// The settlement functions call it right next to SettleBilling, so the quota and
+// the conversion rate the record carries are the exact values this request was
+// charged with, and no worker ever reads billing state back off a global.
+//
+// A record that arrives without an active attempt is dropped rather than moved
+// onto the root: the AWS SDK and Xunfei v1 bypasses never open an attempt, and
+// their usage may not be attributed to a trace that did not make that call
+// (design §8.4).
+func (r *Recorder) RecordUsage(rec UsageRecord) {
+	if r == nil {
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			warnCapture(fmt.Sprintf("record_usage_panic: %T", recovered))
+		}
+	}()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.frozen {
+		return
+	}
+	if r.active == nil || !r.active.UpstreamCallStarted {
+		r.usageUnattributed = true
+		return
+	}
+	r.active.Usage = &rec
 }
 
 // FromContext returns the Langfuse Recorder of the current request. A missing

@@ -64,6 +64,7 @@ type recorderMaterial struct {
 	InputOmittedReason string
 	InputScanTruncated bool
 	LifecyclePanic     bool
+	UsageUnattributed  bool
 
 	ModelParams map[string]any
 	Settlement  *settlementSummary
@@ -223,8 +224,8 @@ func (r *Recorder) freezeMaterial(finalErr *types.NewAPIError) recorderMaterial 
 		InputOmittedReason: r.inputOmittedReason,
 		InputScanTruncated: r.inputScanTruncated,
 		LifecyclePanic:     r.lifecyclePanic,
+		UsageUnattributed:  r.usageUnattributed,
 		ModelParams:        r.modelParams,
-		Settlement:         r.settlement,
 		Input:              r.input,
 	}
 	if r.writer != nil {
@@ -235,6 +236,7 @@ func (r *Recorder) freezeMaterial(finalErr *types.NewAPIError) recorderMaterial 
 	for _, attempt := range r.attempts {
 		material.Attempts = append(material.Attempts, *attempt)
 	}
+	material.Settlement = settledSummary(material.Attempts)
 
 	material.Failed = r.lifecyclePanic || finalErr != nil || allAttemptsFailed(material.Attempts)
 	if finalErr != nil {

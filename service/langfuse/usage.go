@@ -174,6 +174,60 @@ func costDetailsJSON(rec UsageRecord) (string, bool) {
 	return string(encoded), true
 }
 
+// usageExport is everything one attempt contributes to the usage and cost
+// attributes: the buckets that may be exported, the authoritative cost document
+// and the markers explaining whatever was left out.
+type usageExport struct {
+	Record     *UsageRecord
+	Buckets    map[string]int
+	Cost       string
+	HasCost    bool
+	OmitReason string
+	Flags      []string
+}
+
+// buildUsageExport applies §8.4 and §8.5 to one attempt. A failed or superseded
+// attempt never produces a cost: its settlement, if any, belongs to whichever
+// attempt actually served the request.
+func buildUsageExport(attempt *attemptValue) usageExport {
+	export := usageExport{Record: attempt.Usage}
+	if attempt.Usage == nil {
+		return export
+	}
+	export.Buckets, export.OmitReason, export.Flags = normalizeUsageBuckets(*attempt.Usage)
+	if len(export.Buckets) == 0 && export.OmitReason == "" {
+		export.OmitReason = UsageOmittedUnavailable
+	}
+	if !attemptFailed(attempt) {
+		export.Cost, export.HasCost = costDetailsJSON(*attempt.Usage)
+	}
+	return export
+}
+
+// settledSummary is the §8.1 trace level quota pair. It exists only when exactly
+// one attempt really settled: zero candidates, several candidates or an illegal
+// quota omit the pair whole rather than pick an attempt or add them up.
+func settledSummary(attempts []attemptValue) *settlementSummary {
+	var summary *settlementSummary
+	for i := range attempts {
+		attempt := &attempts[i]
+		// Failed and superseded attempts are not candidates, whatever they were
+		// handed.
+		if attemptFailed(attempt) {
+			continue
+		}
+		record := attempt.Usage
+		if record == nil || !record.Settled || record.Quota < 0 {
+			continue
+		}
+		if summary != nil {
+			return nil
+		}
+		summary = &settlementSummary{Quota: record.Quota, BillingSource: record.BillingSource}
+	}
+	return summary
+}
+
 // costOmittedReason names why a generation carries no authoritative cost, in the
 // documented §8.1 priority. A superseded attempt keeps its own reason so it
 // never pretends the provider failed, and a settlement that had nothing to bill
