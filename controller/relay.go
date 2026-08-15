@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/langfuse"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -75,8 +76,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
 	var (
-		newAPIError *types.NewAPIError
-		ws          *websocket.Conn
+		newAPIError         *types.NewAPIError
+		ws                  *websocket.Conn
+		relayInfo           *relaycommon.RelayInfo
+		recorder            *langfuse.Recorder
+		billingPhaseReached bool
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -89,8 +93,24 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		defer ws.Close()
 	}
 
+	// One finalizer owns the whole end of the request: billing settlement, the
+	// client error response and the Langfuse root. Its registration position
+	// matters — LIFO puts it before ws.Close, so a realtime error still reaches
+	// an open connection.
 	defer func() {
-		if newAPIError != nil {
+		// The panic is only detected here, never swallowed: the telemetry state
+		// is closed and the original value is re-raised for Gin's Recovery.
+		panicValue := recover()
+
+		if newAPIError != nil && billingPhaseReached && relayInfo != nil {
+			newAPIError = service.NormalizeViolationFeeError(newAPIError)
+			if relayInfo.Billing != nil {
+				relayInfo.Billing.Refund(c)
+			}
+			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
+		}
+
+		if panicValue == nil && newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			switch relayFormat {
@@ -107,6 +127,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				})
 			}
 		}
+
+		if recorder != nil {
+			if panicValue != nil {
+				// Close whatever attempt the panic interrupted before the root
+				// is frozen.
+				langfuse.MarkLifecyclePanic(c, relayInfo)
+			}
+			// Freezing happens after the final response bytes are written, so
+			// the root output is what the client really received.
+			langfuse.Finish(c, relayInfo, newAPIError)
+		}
+
+		if panicValue != nil {
+			panic(panicValue)
+		}
 	}()
 
 	request, err := helper.GetAndValidateRequest(c, relayFormat)
@@ -120,11 +155,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
+
+	recorder = langfuse.Begin(c, relayInfo, request)
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needCountToken := constant.CountToken
@@ -169,17 +206,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 	}
-
-	defer func() {
-		// Only return quota if downstream failed and quota was actually pre-consumed
-		if newAPIError != nil {
-			newAPIError = service.NormalizeViolationFeeError(newAPIError)
-			if relayInfo.Billing != nil {
-				relayInfo.Billing.Refund(c)
-			}
-			service.ChargeViolationFeeIfNeeded(c, relayInfo, newAPIError)
-		}
-	}()
+	// Both branches converge here: a free model skips the pre-consume, a paid
+	// one only reaches this point once PreConsumeBilling succeeded. The
+	// finalizer refunds and charges violation fees only past this point.
+	billingPhaseReached = true
 
 	retryParam := &service.RetryParam{
 		Ctx:         c,
@@ -227,6 +257,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		default:
 			newAPIError = relayHandler(c, relayInfo)
 		}
+
+		// The attempt is closed while its own channel and model are still
+		// current, before a success returns or the next round overwrites them.
+		langfuse.EndAttempt(c, relayInfo, newAPIError)
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
