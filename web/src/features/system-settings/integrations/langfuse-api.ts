@@ -24,6 +24,8 @@ import { api } from '@/lib/api'
 // exporter. The generic endpoint rejects langfuse_setting.* for the same
 // reason, and the secret key never appears in any response.
 
+export const LANGFUSE_SETTINGS_QUERY_KEY = ['langfuse-settings'] as const
+
 export interface LangfuseSettingsView {
   enabled: boolean
   host: string

@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { SystemBehaviorSection } from '../general/system-behavior-section'
 import { EmailSettingsSection } from '../integrations/email-settings-section'
+import { LangfuseSettingsSection } from '../integrations/langfuse-settings-section'
 import { MonitoringSettingsSection } from '../integrations/monitoring-settings-section'
 import { WorkerSettingsSection } from '../integrations/worker-settings-section'
 import { LogSettingsSection } from '../maintenance/log-settings-section'
@@ -58,6 +59,13 @@ const OPERATIONS_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'langfuse',
+    titleKey: 'Langfuse Tracing',
+    // Reads and writes /api/option/langfuse itself: the generic option API
+    // rejects langfuse_setting.* so the group stays transactional.
+    build: () => <LangfuseSettingsSection />,
   },
   {
     id: 'email',
