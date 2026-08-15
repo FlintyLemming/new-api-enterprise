@@ -150,7 +150,7 @@ func TestForbiddenIngestionFailsBatchWithoutRetryOrUpstreamBody(t *testing.T) {
 	assert.EqualValues(t, 3, exporter.failed.Load())
 	assert.EqualValues(t, 0, exporter.exported.Load())
 	assert.NotContains(t, err.Error(), suspendedBody, "the upstream response body must never reach the error")
-	assert.Contains(t, err.Error(), "ingestion_forbidden")
+	assert.Contains(t, err.Error(), "ingestion_forbidden http 403", "the warning must name the status it classifies")
 	assert.Contains(t, err.Error(), "3 span")
 }
 

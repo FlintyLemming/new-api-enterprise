@@ -149,14 +149,14 @@ func (e *countingExporter) ExportSpans(ctx context.Context, spans []sdktrace.Rea
 	e.received.Add(count)
 	if err := e.SpanExporter.ExportSpans(ctx, spans); err != nil {
 		e.failed.Add(count)
-		category := "export_failed"
+		category, status := "export_failed", ""
 		if e.transport != nil && e.transport.forbidden.Load() {
-			category = "ingestion_forbidden"
+			category, status = "ingestion_forbidden", " http 403"
 		}
 		return langfuseExportError{
 			key: fmt.Sprintf("%s:%d", category, e.version),
-			summary: fmt.Sprintf("langfuse export failed: %s (runtime version %d, %d span(s))",
-				category, e.version, count),
+			summary: fmt.Sprintf("langfuse export failed: %s%s (runtime version %d, %d span(s))",
+				category, status, e.version, count),
 		}
 	}
 	e.exported.Add(count)
