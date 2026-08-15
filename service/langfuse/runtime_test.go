@@ -1,7 +1,9 @@
 package langfuse
 
 import (
+	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/QuantumNous/new-api/setting/langfuse_setting"
@@ -96,4 +98,74 @@ func TestBindingLoadAndPublishAreConcurrencySafe(t *testing.T) {
 	final := LoadBinding()
 	assert.True(t, final.Snapshot.Enabled)
 	assert.Equal(t, final.Snapshot.Version, CurrentVersion())
+}
+
+func TestRuntimeLeaseStopsAtRetirement(t *testing.T) {
+	r := newTelemetryRuntime(Snapshot{})
+	require.True(t, r.TryAcquire())
+
+	r.Retire()
+	assert.False(t, r.TryAcquire(), "a retired runtime must not hand out new leases")
+
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.False(t, r.WaitIdle(cancelled), "runtime with an outstanding lease is not idle")
+
+	r.Release()
+	assert.True(t, r.WaitIdle(t.Context()))
+}
+
+func TestRuntimeRetirementNeverGrantsLateLease(t *testing.T) {
+	r := newTelemetryRuntime(Snapshot{})
+
+	var retireReturned, lateLease atomic.Bool
+	var acquired atomic.Int64
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			// Sampling the flag before the attempt keeps the assertion free of
+			// false positives: a lease taken before Retire returned is legal.
+			retiredBeforeAttempt := retireReturned.Load()
+			if !r.TryAcquire() {
+				return
+			}
+			if retiredBeforeAttempt {
+				lateLease.Store(true)
+			}
+			acquired.Add(1)
+			r.Release()
+		}()
+	}
+
+	close(start)
+	r.Retire()
+	retireReturned.Store(true)
+	wg.Wait()
+
+	assert.False(t, lateLease.Load(), "retirement observed zero in-flight but a later lease still succeeded")
+	assert.True(t, r.WaitIdle(t.Context()))
+	r.mu.Lock()
+	inFlight := r.inFlight
+	r.mu.Unlock()
+	assert.Zero(t, inFlight, "every granted lease must be accounted for by its Release")
+	t.Logf("leases granted before retirement: %d", acquired.Load())
+}
+
+func TestRuntimeUnbalancedReleaseKeepsAccountingSane(t *testing.T) {
+	r := newTelemetryRuntime(Snapshot{})
+	require.True(t, r.TryAcquire())
+
+	r.Release()
+	// A duplicated release must neither underflow the counter nor close the
+	// idle channel twice; both would surface as a panic or a premature idle.
+	r.Release()
+
+	r.Retire()
+	assert.True(t, r.WaitIdle(t.Context()))
+	r.Release()
+	assert.True(t, r.WaitIdle(t.Context()))
 }
