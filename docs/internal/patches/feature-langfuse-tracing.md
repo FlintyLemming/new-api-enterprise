@@ -70,6 +70,10 @@ New API 自身只留结构化消费日志，没有可回看的对话级追踪：
 **启用步骤**：`PUT /api/option/langfuse` 或管理界面填写 Host/Public Key/Secret Key，并显式选择 Sample Rate
 与 Send Content（缺任一不保存）。Secret Key 永远不会被任何接口返回。
 
+**完整部署说明**见 `docs/langfuse.md`（面向部署者，含 compose 增量、共用 pg/clickhouse/redis 的实测结论、
+容量规划与 ingress 配置）。其中一条硬约束：Langfuse 4.6 的 ClickHouse 迁移需要 25.x，new-api compose 注释
+里建议的 24.8 会在 `0039_create_events_full` 失败（`code: 80, Only literals can be skip index arguments`）。
+
 ## 与上游的冲突风险
 
 - `controller/relay.go` 的 retry loop 与统一 finalizer 是上游活跃文件。同步上游时保留内部的
