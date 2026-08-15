@@ -6,7 +6,8 @@
 
 **Architecture:** `service/langfuse/runtime.go`（manager/lease/计数/shutdown）+ `service/langfuse/exporter.go`（endpoint/exporter/RoundTripper/decorator）+ `service/langfuse/idgen.go`（IDGenerator + `DeriveTraceID`）。控制面 API 不变：`PublishSnapshot(s)` 内部升级为"启用→构建 candidate runtime→发布→退休旧 runtime"。生产代码只调用官方 exporter。
 
-**Tech Stack:** otel sdk v1.34、otlptracehttp、`go.opentelemetry.io/proto/otlp`（仅测试）。
+**Tech Stack:** otel sdk v1.44（执行本计划时从 v1.34 上调，因为 403 `RoundTripper` 需要 v1.36.0 才引入的
+`otlptracehttp.WithHTTPClient`）、otlptracehttp、`go.opentelemetry.io/proto/otlp`（仅测试）。
 
 ## Global Constraints
 
@@ -99,7 +100,7 @@ func buildExporterOptions(snap langfuse_setting.Snapshot) ([]otlptracehttp.Optio
 }
 ```
 
-（`RetryConfig` 具体字段以 v1.34 API 为准：`otlptracehttp.RetryConfig{Enabled: true, InitialInterval:, MaxInterval:, MaxElapsedTime:}`；选择 Initial 1s、Max 5s、MaxElapsed 30s，并在测试/注释固定。`WithEndpointURL` 若 v1.34 签名不符，按 §11 的等价替代 `WithEndpoint(authority)+WithURLPath(path)+WithInsecure(仅 http)`，并在 helper 里同时返回三个组成值供测试。）
+（`RetryConfig` 具体字段以 v1.44 API 为准：`otlptracehttp.RetryConfig{Enabled: true, InitialInterval:, MaxInterval:, MaxElapsedTime:}`；选择 Initial 1s、Max 5s、MaxElapsed 30s，并在测试/注释固定。`WithEndpointURL` 在 v1.44 仍存在，无需 §11 的 `WithEndpoint(authority)+WithURLPath(path)+WithInsecure(仅 http)` 替代路径。）
 
 - [ ] **Step 3: 集成测试**（`otlp_http_test.go`，真实 exporter + `httptest.Server`，`t.Cleanup` 关闭 provider）：
   1. `http://127.0.0.1:addr` Host（scheme http）→ 服务端收到 `POST /api/public/otel/v1/traces`，`Content-Encoding: gzip`，`Authorization` 存在且以 `Basic ` 开头（**断言时不得把值写进失败消息**）。

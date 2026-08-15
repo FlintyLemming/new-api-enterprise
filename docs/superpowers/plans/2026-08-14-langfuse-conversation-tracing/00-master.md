@@ -6,7 +6,7 @@
 
 **Architecture:** 数据面包 `service/langfuse`（Recorder/capture writer/sampler，只依赖 `common`/`constant`/`relay/common`/`relay/constant`/`relaykit/dto`/`relaykit/types`/`setting/langfuse_setting`）+ 控制面包 `service/langfuseconfig`（持久化/reconcile/publish，可依赖 `model`）+ OTel SDK（BatchSpanProcessor + otlptracehttp）。controller 在 RelayInfo 创建后 `Begin`，共享 `doRequest` 的 `relayClient.Do` 前 `BeginAttempt`，handler 返回后 `EndAttempt`，统一 finalizer `Finish`；结算函数把最终 usage/quota 记到 active attempt。
 
-**Tech Stack:** Go 1.22+, Gin, GORM, OpenTelemetry Go SDK v1.34（otel/sdk、otlptracehttp、proto/otlp 仅测试）、React 19 + TanStack + react-hook-form/zod、i18next（7 语言）。
+**Tech Stack:** Go 1.22+, Gin, GORM, OpenTelemetry Go SDK v1.44（plan-3 执行时从 v1.34 上调；otel/sdk、otlptracehttp、proto/otlp 仅测试）、React 19 + TanStack + react-hook-form/zod、i18next（7 语言）。
 
 ## 子计划与执行顺序
 

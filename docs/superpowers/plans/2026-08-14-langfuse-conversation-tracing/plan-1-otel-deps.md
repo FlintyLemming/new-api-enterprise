@@ -36,6 +36,10 @@ go mod tidy
 
 若 `go get` 因传递约束提示需要 `go.opentelemetry.io/proto/otlp` 或 `google.golang.org/protobuf`，按提示版本加入（`protobuf v1.36.5` 已在 go.sum 中）；最终以 `go mod tidy` 收敛为准，并核对 `go.mod` 中 otel 家族版本全部为 `v1.34.0`（`otlp` proto 例外，跟随 exporter 需求）。
 
+> **实现期修订（plan-3 执行时）：** 整组版本已从 `v1.34.0` 上调到 `v1.44.0`。plan-3 的 403 `RoundTripper` 需要
+> `otlptracehttp.WithHTTPClient`，该 option 自 v1.36.0 才存在。改锁后重新执行了本计划 Task 2 的验证
+> （`go build ./...`、`go test ./model/... ./service/...`、`cd relaykit && GOWORK=off go build ./...`）。
+
 - [ ] **Step 2: 冒烟测试（证明 direct import 可用且 sdk 构建无冲突）**
 
 ```go

@@ -1379,7 +1379,7 @@ scheme/path：
 - TracerProvider 必须显式使用 `sdktrace.WithSampler(sdktrace.AlwaysSample())`。采样已在 Langfuse `Begin`
   之前完成；SDK 不能再次按默认 sampler 丢弃已选中的 trace，否则会破坏 session/request 级采样契约；
 - TracerProvider 必须显式锁定 span limits，不能使用会从进程环境读取限制的默认
-  `sdktrace.NewSpanLimits()` 结果。锁定的 OTel v1.34 使用能原样保留负数/零语义的
+  `sdktrace.NewSpanLimits()` 结果。锁定的 OTel v1.44（实现期从 v1.34 上调，见下）使用能原样保留负数/零语义的
   `sdktrace.WithRawSpanLimits`（该版本已将 `WithSpanLimits` 标为 deprecated），配置固定为：
 
   ```go
@@ -1414,6 +1414,12 @@ scheme/path：
   后续 batch 仍可按正常 BSP 流程尝试，以便管理员解除限额后自动恢复，但每个 403 batch 自身绝不退避重试。
 - 独立 HTTP client/transport，单次请求超时 10 秒；
 - Resource attributes 包含 `service.name`、`service.version` 和 deployment environment。
+
+OTel 版本锁定从 v1.34.0 上调到 v1.44.0：上文的专用 `RoundTripper` 需要把自定义 `http.Client` 交给官方
+exporter，而 `otlptracehttp.WithHTTPClient` 自 v1.36.0 才存在；v1.34 只能通过 `WithTLSClientConfig`/`WithProxy`
+间接改内部 transport，无法观察响应状态码，也就无法在 exporter 读到响应前关闭并替换 403 的原始 body。
+v1.44 仍提供 `WithEndpointURL`、`WithRetry(RetryConfig{Enabled,InitialInterval,MaxInterval,MaxElapsedTime})`
+和 `WithRawSpanLimits`，本节其余锁定值不变。
 
 OTel SDK 使用进程级 error handler。标准 `BatchSpanProcessor` 只有 span 条数队列，没有正文的字节维度
 兜底；第一版依靠 §9.1/§10 的较小默认 queue、content 上限和联动校验控制风险，不把 512 MiB capture
