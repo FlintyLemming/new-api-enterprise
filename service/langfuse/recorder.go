@@ -74,6 +74,10 @@ type UsageRecord struct {
 	QuotaPerUnit  float64
 	BillingSource string
 	Settled       bool
+	// SettlementFailed separates the two ways Settled can be false: a
+	// SettleBilling error, which is reported as settlement_error, and a text
+	// request that simply had nothing billable (design §8.2).
+	SettlementFailed bool
 }
 
 // attemptValue is the immutable-by-convention snapshot of one upstream call.
