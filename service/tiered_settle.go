@@ -24,10 +24,10 @@ type TieredResultWrapper = billingexpr.TieredResult
 // sub-categories are separately priced.
 //
 // promptTokensIncludeCache reports whether the raw upstream prompt tokens
-// include cache read/write counts. Subtractions from P only apply when it
-// is true; when the upstream already reports an exclusive caliber, cache
-// tokens are not part of P and must not be subtracted again. It has no
-// effect under Claude usage semantics.
+// include the cache/image/audio sub-buckets. Subtractions from P only apply
+// when it is true; when the upstream already reports an exclusive caliber,
+// those sub-bucket tokens are not part of P and must not be subtracted
+// again. It has no effect under Claude usage semantics.
 func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, promptTokensIncludeCache bool, usedVars map[string]bool) billingexpr.TokenParams {
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)

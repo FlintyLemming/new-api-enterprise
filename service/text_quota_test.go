@@ -583,15 +583,20 @@ func TestCalculateTextQuotaSummary_CacheSemantic(t *testing.T) {
 		wantSummaryPT  int // fold 后 summary.PromptTokens
 		wantUpstreamIn bool
 		wantExcludes   bool
+		wantQuota      int // nonzero: also pin summary.Quota
 	}{
 		{name: "undeclared openai inclusive", semantic: "openai", rawPrompt: 1000, cacheRead: 800,
 			wantSummaryPT: 1000, wantUpstreamIn: true, wantExcludes: false},
+		// quota = 100 (folded prompt) + 800*0.1 (cache read) + 100*1.25 (flat
+		// cache creation, no base subtraction after fold) = 305.
 		{name: "declared includes non-claude", semantic: "openai", declared: cacheSemanticIncludes,
 			rawPrompt: 1000, cacheRead: 800, cacheCreation: 100,
-			wantSummaryPT: 100, wantUpstreamIn: true, wantExcludes: true},
+			wantSummaryPT: 100, wantUpstreamIn: true, wantExcludes: true, wantQuota: 305},
+		// quota = 200 (exclusive prompt) + 800*0.1 + 100*1.25 (default flat
+		// arm for declared-excludes non-Claude) = 405.
 		{name: "declared excludes non-claude", semantic: "openai", declared: cacheSemanticExcludes,
 			rawPrompt: 200, cacheRead: 800, cacheCreation: 100,
-			wantSummaryPT: 200, wantUpstreamIn: false, wantExcludes: true},
+			wantSummaryPT: 200, wantUpstreamIn: false, wantExcludes: true, wantQuota: 405},
 		{name: "anthropic semantic", semantic: "anthropic", rawPrompt: 200, cacheRead: 800, cacheCreation: 100,
 			wantSummaryPT: 200, wantUpstreamIn: false, wantExcludes: true},
 		// legacy claude derived 要求 UsageSemantic 为空,仅凭 5m/1h 字段触发 legacy 判定。
@@ -650,6 +655,9 @@ func TestCalculateTextQuotaSummary_CacheSemantic(t *testing.T) {
 			assert.Equal(t, tc.wantSummaryPT, summary.PromptTokens, "summary.PromptTokens")
 			assert.Equal(t, tc.wantUpstreamIn, summary.UpstreamPromptTokensIncludeCache, "summary.UpstreamPromptTokensIncludeCache")
 			assert.Equal(t, tc.wantExcludes, summary.InputExcludesCache, "summary.InputExcludesCache")
+			if tc.wantQuota != 0 {
+				assert.Equal(t, tc.wantQuota, summary.Quota, "summary.Quota")
+			}
 		})
 	}
 }
