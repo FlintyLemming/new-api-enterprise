@@ -11,13 +11,21 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat                   bool   `json:"force_format,omitempty"`
-	ThinkingToContent             bool   `json:"thinking_to_content,omitempty"`
-	AnthropicMessagesExcludeCache bool   `json:"anthropic_messages_exclude_cache,omitempty"`
-	Proxy                         string `json:"proxy"`
-	PassThroughBodyEnabled        bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt                  string `json:"system_prompt,omitempty"`
-	SystemPromptOverride          bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat                   bool `json:"force_format,omitempty"`
+	ThinkingToContent             bool `json:"thinking_to_content,omitempty"`
+	AnthropicMessagesExcludeCache bool `json:"anthropic_messages_exclude_cache,omitempty"`
+	// CachePromptTokenSemantic declares whether the upstream provider counts
+	// cached prompt tokens inside usage.prompt_tokens. Empty means auto-detect
+	// from usage semantic; "prompt_includes_cache"/"prompt_excludes_cache"
+	// are explicit channel declarations that take priority. A
+	// prompt_excludes_cache declaration only affects cache accounting; image
+	// and audio detail tokens still follow the inclusive-subtraction rule (it
+	// is not a blanket "exclusive for everything" switch).
+	CachePromptTokenSemantic string `json:"cache_prompt_token_semantic,omitempty"`
+	Proxy                    string `json:"proxy"`
+	PassThroughBodyEnabled   bool   `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt             string `json:"system_prompt,omitempty"`
+	SystemPromptOverride     bool   `json:"system_prompt_override,omitempty"`
 	// HTTPProtocol controls outbound HTTP version negotiation for this channel.
 	// Accepted values: "", "auto" (default), "http1".
 	HTTPProtocol string `json:"http_protocol,omitempty"`

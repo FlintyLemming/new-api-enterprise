@@ -86,6 +86,27 @@ export function normalizeHttpProtocol(
   return HTTP_PROTOCOL_AUTO
 }
 
+export const CACHE_PROMPT_TOKEN_SEMANTIC_AUTO = 'auto'
+export const CACHE_PROMPT_TOKEN_SEMANTIC_PROMPT_INCLUDES_CACHE =
+  'prompt_includes_cache'
+export const CACHE_PROMPT_TOKEN_SEMANTIC_PROMPT_EXCLUDES_CACHE =
+  'prompt_excludes_cache'
+
+export function normalizeCachePromptTokenSemantic(
+  value: string | undefined | null
+): 'auto' | 'prompt_includes_cache' | 'prompt_excludes_cache' {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+  if (normalized === CACHE_PROMPT_TOKEN_SEMANTIC_PROMPT_INCLUDES_CACHE) {
+    return CACHE_PROMPT_TOKEN_SEMANTIC_PROMPT_INCLUDES_CACHE
+  }
+  if (normalized === CACHE_PROMPT_TOKEN_SEMANTIC_PROMPT_EXCLUDES_CACHE) {
+    return CACHE_PROMPT_TOKEN_SEMANTIC_PROMPT_EXCLUDES_CACHE
+  }
+  return CACHE_PROMPT_TOKEN_SEMANTIC_AUTO
+}
+
 export function normalizeHttp2ConnectionShards(
   value: number | undefined | null
 ): number {
@@ -259,6 +280,9 @@ export const channelFormSchema = z
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
+    cache_prompt_token_semantic: z
+      .enum(['auto', 'prompt_includes_cache', 'prompt_excludes_cache'])
+      .optional(),
     pass_through_body_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
     system_prompt_override: z.boolean().optional(),
@@ -432,6 +456,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
+  cache_prompt_token_semantic: CACHE_PROMPT_TOKEN_SEMANTIC_AUTO,
   pass_through_body_enabled: false,
   system_prompt: '',
   system_prompt_override: false,
@@ -473,6 +498,10 @@ export function transformChannelToFormDefaults(
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
+    cache_prompt_token_semantic: CACHE_PROMPT_TOKEN_SEMANTIC_AUTO as
+      | 'auto'
+      | 'prompt_includes_cache'
+      | 'prompt_excludes_cache',
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
@@ -492,8 +521,10 @@ export function transformChannelToFormDefaults(
           parsed.anthropic_messages_exclude_cache || false,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
-        http2_connection_shards:
-          protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
+        http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
+        cache_prompt_token_semantic: normalizeCachePromptTokenSemantic(
+          parsed.cache_prompt_token_semantic
+        ),
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         system_prompt: parsed.system_prompt || '',
         system_prompt_override: parsed.system_prompt_override || false,
@@ -629,6 +660,13 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     settingObj.http_protocol = HTTP_PROTOCOL_HTTP1
   } else if (shards > 1) {
     settingObj.http2_connection_shards = shards
+  }
+
+  const cacheSemantic = normalizeCachePromptTokenSemantic(
+    formData.cache_prompt_token_semantic
+  )
+  if (cacheSemantic !== CACHE_PROMPT_TOKEN_SEMANTIC_AUTO) {
+    settingObj.cache_prompt_token_semantic = cacheSemantic
   }
 
   return JSON.stringify(settingObj)

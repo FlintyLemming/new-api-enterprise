@@ -556,6 +556,26 @@ func TestChannelSettingsHTTPTransportJSONRoundTrip(t *testing.T) {
 	assert.NotContains(t, string(encoded), "http_protocol")
 }
 
+func TestChannelSettingsCachePromptTokenSemanticJSONRoundTrip(t *testing.T) {
+	legacy := `{"proxy":"http://127.0.0.1:8080","force_format":true}`
+	var settings ChannelSettings
+	require.NoError(t, json.Unmarshal([]byte(legacy), &settings))
+	assert.Empty(t, settings.CachePromptTokenSemantic)
+
+	encoded, err := json.Marshal(settings)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "cache_prompt_token_semantic")
+
+	explicit := ChannelSettings{CachePromptTokenSemantic: "prompt_includes_cache"}
+	encoded, err = json.Marshal(explicit)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"cache_prompt_token_semantic":"prompt_includes_cache"`)
+
+	var decoded ChannelSettings
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, "prompt_includes_cache", decoded.CachePromptTokenSemantic)
+}
+
 func TestChannelSettingsValidateHTTPTransport(t *testing.T) {
 	require.NoError(t, (&ChannelSettings{}).ValidateHTTPTransport())
 	require.NoError(t, (&ChannelSettings{HTTPProtocol: "AUTO"}).ValidateHTTPTransport())

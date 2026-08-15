@@ -89,6 +89,10 @@ export interface ChannelSettings {
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
+  cache_prompt_token_semantic?:
+    | 'prompt_includes_cache'
+    | 'prompt_excludes_cache'
+    | string
 }
 
 export interface ChannelOtherSettings {

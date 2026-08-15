@@ -286,7 +286,9 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
 	}
 	var tieredResult *billingexpr.TieredResult
-	tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, BuildTieredTokenParams(usage, false, tieredUsedVars))
+	// audio prompt totals are an inclusive caliber, so tiered params keep
+	// subtracting used sub-buckets (ai/img) from P, matching pre-flag behavior.
+	tieredOk, tieredQuota, tieredRes := TryTieredSettle(relayInfo, BuildTieredTokenParams(usage, false, true, tieredUsedVars))
 	if tieredOk {
 		tieredResult = tieredRes
 	}

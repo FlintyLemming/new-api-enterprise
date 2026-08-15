@@ -663,7 +663,7 @@ func TestTryTieredSettle_ErrorFallbackToEstimatedQuotaAfterGroup(t *testing.T) {
 
 func tieredQuota(exprStr string, usage *dto.Usage, isClaudeSemantic bool, groupRatio float64) float64 {
 	usedVars := billingexpr.UsedVars(exprStr)
-	params := BuildTieredTokenParams(usage, isClaudeSemantic, usedVars)
+	params := BuildTieredTokenParams(usage, isClaudeSemantic, !isClaudeSemantic, usedVars)
 	cost, _, _ := billingexpr.RunExpr(exprStr, params)
 	return cost / 1_000_000 * testQuotaPerUnit * groupRatio
 }
@@ -865,7 +865,7 @@ func TestBuildTieredTokenParams_Len_GPT(t *testing.T) {
 	}
 	expr := `tier("base", p * 2.5 + c * 15 + cr * 0.25)`
 	usedVars := billingexpr.UsedVars(expr)
-	params := BuildTieredTokenParams(usage, false, usedVars)
+	params := BuildTieredTokenParams(usage, false, true, usedVars)
 
 	// Non-Claude: Len = raw PromptTokens
 	if params.Len != 10000 {
@@ -891,7 +891,7 @@ func TestBuildTieredTokenParams_Len_Claude(t *testing.T) {
 	}
 	expr := `tier("base", p * 3 + c * 15 + cr * 0.3 + cc * 3.75 + cc1h * 6)`
 	usedVars := billingexpr.UsedVars(expr)
-	params := BuildTieredTokenParams(usage, true, usedVars)
+	params := BuildTieredTokenParams(usage, true, false, usedVars)
 
 	// Claude: Len = PromptTokens + CachedTokens + CacheCreation5m + CacheCreation1h
 	wantLen := float64(5000 + 3000 + 1000 + 500)
@@ -916,7 +916,7 @@ func TestBuildTieredTokenParams_Len_TierCondition(t *testing.T) {
 	}
 	expr := `len <= 200000 ? tier("standard", p * 3 + c * 15 + cr * 0.3) : tier("long_context", p * 6 + c * 22.5 + cr * 0.6)`
 	usedVars := billingexpr.UsedVars(expr)
-	params := BuildTieredTokenParams(usage, false, usedVars)
+	params := BuildTieredTokenParams(usage, false, true, usedVars)
 
 	// Len = 300000 (raw prompt), P = 50000 (300000 - 250000 cache)
 	if params.Len != 300000 {
@@ -939,6 +939,112 @@ func TestBuildTieredTokenParams_Len_TierCondition(t *testing.T) {
 	if math.Abs(cost-wantCost) > 1e-6 {
 		t.Fatalf("cost = %f, want %f", cost, wantCost)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// BuildTieredTokenParams: prompt cache inclusion flag tests
+// ---------------------------------------------------------------------------
+
+func TestBuildTieredTokenParams_PromptCacheInclusionFlag(t *testing.T) {
+	cacheUsage := func() *dto.Usage {
+		return &dto.Usage{
+			PromptTokens:     1000,
+			CompletionTokens: 500,
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens:         200,
+				CachedCreationTokens: 100,
+				TextTokens:           700,
+			},
+		}
+	}
+	imageUsage := func() *dto.Usage {
+		return &dto.Usage{
+			PromptTokens:     1000,
+			CompletionTokens: 500,
+			PromptTokensDetails: dto.InputTokenDetails{
+				ImageTokens: 300,
+				TextTokens:  700,
+			},
+		}
+	}
+
+	tests := []struct {
+		name                     string
+		usage                    *dto.Usage
+		isClaudeSemantic         bool
+		promptTokensIncludeCache bool
+		expr                     string
+		wantP                    float64
+	}{
+		{
+			name:                     "declared exclusive keeps raw prompt with cache vars",
+			usage:                    cacheUsage(),
+			isClaudeSemantic:         false,
+			promptTokensIncludeCache: false,
+			expr:                     `tier("base", p * 2.5 + c * 15 + cr * 0.25 + cc * 3)`,
+			wantP:                    1000, // no subtraction: cache tokens are not inside P
+		},
+		{
+			name:                     "inclusive caliber subtracts cache from prompt",
+			usage:                    cacheUsage(),
+			isClaudeSemantic:         false,
+			promptTokensIncludeCache: true,
+			expr:                     `tier("base", p * 2.5 + c * 15 + cr * 0.25 + cc * 3)`,
+			wantP:                    700, // 1000 - 200 cr - 100 cc
+		},
+		{
+			name:                     "claude semantic with flag true",
+			usage:                    cacheUsage(),
+			isClaudeSemantic:         true,
+			promptTokensIncludeCache: true,
+			expr:                     `tier("base", p * 3 + c * 15 + cr * 0.3 + cc * 3.75)`,
+			wantP:                    1000, // Claude never subtracts from P
+		},
+		{
+			name:                     "claude semantic with flag false",
+			usage:                    cacheUsage(),
+			isClaudeSemantic:         true,
+			promptTokensIncludeCache: false,
+			expr:                     `tier("base", p * 3 + c * 15 + cr * 0.3 + cc * 3.75)`,
+			wantP:                    1000, // identical to flag true: flag has no Claude effect
+		},
+		{
+			name:                     "declared exclusive keeps raw prompt with image var",
+			usage:                    imageUsage(),
+			isClaudeSemantic:         false,
+			promptTokensIncludeCache: false,
+			expr:                     `tier("base", p * 2 + c * 8 + img * 2.5)`,
+			wantP:                    1000, // every sub-bucket subtraction is skipped, img included
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			params := BuildTieredTokenParams(tc.usage, tc.isClaudeSemantic, tc.promptTokensIncludeCache, billingexpr.UsedVars(tc.expr))
+			assert.Equal(t, tc.wantP, params.P)
+		})
+	}
+}
+
+func TestBuildTieredTokenParams_ExclusiveFlagKeepsSubBucketParams(t *testing.T) {
+	usage := &dto.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+		PromptTokensDetails: dto.InputTokenDetails{
+			CachedTokens:         200,
+			CachedCreationTokens: 100,
+			TextTokens:           700,
+		},
+	}
+	expr := `tier("base", p * 2.5 + c * 15 + cr * 0.25 + cc * 3)`
+	params := BuildTieredTokenParams(usage, false, false, billingexpr.UsedVars(expr))
+
+	require.Equal(t, 1000.0, params.P)
+	// Sub-bucket counts are still reported via their own variables.
+	assert.Equal(t, 200.0, params.CR)
+	assert.Equal(t, 100.0, params.CC)
+	// Non-Claude: Len stays the raw prompt total regardless of the flag.
+	assert.Equal(t, 1000.0, params.Len)
 }
 
 const complexTieredExpr = `p <= 200000 ? tier("standard", p * 3 + c * 15 + cr * 0.3 + cc * 3.75 + cc1h * 6 + img * 3 + img_o * 30 + ai * 10 + ao * 40) : tier("long_context", p * 6 + c * 22.5 + cr * 0.6 + cc * 7.5 + cc1h * 12 + img * 6 + img_o * 60 + ai * 20 + ao * 80)`
@@ -983,7 +1089,7 @@ func BenchmarkTieredBilling_ComplexExpr(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		usage := usages[i%len(usages)]
-		params := BuildTieredTokenParams(usage, false, usedVars)
+		params := BuildTieredTokenParams(usage, false, true, usedVars)
 		billingexpr.RunExpr(complexTieredExpr, params)
 	}
 }
@@ -1009,7 +1115,7 @@ func BenchmarkTieredBilling_Parallel(b *testing.B) {
 		rng := rand.New(rand.NewSource(rand.Int63()))
 		for pb.Next() {
 			usage := randomUsage(rng)
-			params := BuildTieredTokenParams(usage, false, usedVars)
+			params := BuildTieredTokenParams(usage, false, true, usedVars)
 			billingexpr.RunExpr(complexTieredExpr, params)
 		}
 	})

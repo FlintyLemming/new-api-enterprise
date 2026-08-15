@@ -968,6 +968,13 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
 	}
+	// Allowed literals mirror ChannelSettings.CachePromptTokenSemantic in
+	// relaykit/dto; model/ cannot import service/, so they are hardcoded here.
+	switch channelParams.CachePromptTokenSemantic {
+	case "", "prompt_includes_cache", "prompt_excludes_cache":
+	default:
+		return fmt.Errorf("invalid cache_prompt_token_semantic: %s", channelParams.CachePromptTokenSemantic)
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)

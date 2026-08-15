@@ -556,6 +556,153 @@ func TestCalculateTextQuotaSummaryKeepsPrePRClaudeOpenRouterBilling(t *testing.T
 	require.Equal(t, 798, summary.Quota)
 }
 
+func TestCalculateTextQuotaSummary_CacheSemantic(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+
+	priceData := hosttypes.PriceData{
+		ModelRatio:           1,
+		CompletionRatio:      1,
+		CacheRatio:           0.1,
+		CacheCreationRatio:   1.25,
+		CacheCreation5mRatio: 1.25,
+		CacheCreation1hRatio: 2,
+		GroupRatioInfo:       hosttypes.GroupRatioInfo{GroupRatio: 1},
+	}
+
+	cases := []struct {
+		name           string
+		semantic       string // usage.UsageSemantic
+		declared       string // ChannelSetting.CachePromptTokenSemantic
+		legacyClaude   bool   // 触发 isLegacyClaudeDerivedOpenAIUsage 的 5m/1h 字段
+		openRouter     bool
+		rawPrompt      int
+		cacheRead      int
+		cacheCreation  int
+		wantSummaryPT  int // fold 后 summary.PromptTokens
+		wantUpstreamIn bool
+		wantExcludes   bool
+		wantQuota      int // nonzero: also pin summary.Quota
+	}{
+		{name: "undeclared openai inclusive", semantic: "openai", rawPrompt: 1000, cacheRead: 800,
+			wantSummaryPT: 1000, wantUpstreamIn: true, wantExcludes: false},
+		// quota = 100 (folded prompt) + 800*0.1 (cache read) + 100*1.25 (flat
+		// cache creation, no base subtraction after fold) = 305.
+		{name: "declared includes non-claude", semantic: "openai", declared: cacheSemanticIncludes,
+			rawPrompt: 1000, cacheRead: 800, cacheCreation: 100,
+			wantSummaryPT: 100, wantUpstreamIn: true, wantExcludes: true, wantQuota: 305},
+		// quota = 200 (exclusive prompt) + 800*0.1 + 100*1.25 (default flat
+		// arm for declared-excludes non-Claude) = 405.
+		{name: "declared excludes non-claude", semantic: "openai", declared: cacheSemanticExcludes,
+			rawPrompt: 200, cacheRead: 800, cacheCreation: 100,
+			wantSummaryPT: 200, wantUpstreamIn: false, wantExcludes: true, wantQuota: 405},
+		{name: "anthropic semantic", semantic: "anthropic", rawPrompt: 200, cacheRead: 800, cacheCreation: 100,
+			wantSummaryPT: 200, wantUpstreamIn: false, wantExcludes: true},
+		// legacy claude derived 要求 UsageSemantic 为空,仅凭 5m/1h 字段触发 legacy 判定。
+		{name: "legacy claude derived", legacyClaude: true, rawPrompt: 1000, cacheRead: 800, cacheCreation: 100,
+			wantSummaryPT: 1000, wantUpstreamIn: false, wantExcludes: true},
+		// OpenRouter Claude 行沿用现有构造方式(FinalRequestRelayFormat=Claude +
+		// ChannelTypeOpenRouter),期望与现状一致:summary fold 后 prompt 为
+		// raw-cacheRead-cacheCreation,InputExcludesCache=true。
+		{name: "undeclared openrouter claude", openRouter: true, rawPrompt: 1000, cacheRead: 800, cacheCreation: 100,
+			wantSummaryPT: 100, wantUpstreamIn: false, wantExcludes: true},
+		// declared includes 且 raw-cache < 0 时 fold 结果 clamp 为 0。
+		{name: "declared includes negative fold clamps to zero", semantic: "openai", declared: cacheSemanticIncludes,
+			rawPrompt: 500, cacheRead: 800, cacheCreation: 100,
+			wantSummaryPT: 0, wantUpstreamIn: true, wantExcludes: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			relayInfo := &relaycommon.RelayInfo{
+				RelayFormat:     types.RelayFormatOpenAI,
+				OriginModelName: "claude-3-7-sonnet",
+				PriceData:       priceData,
+				StartTime:       time.Now(),
+			}
+			if tc.openRouter {
+				relayInfo.FinalRequestRelayFormat = types.RelayFormatClaude
+				relayInfo.ChannelMeta = &relaycommon.ChannelMeta{
+					ChannelType: constant.ChannelTypeOpenRouter,
+				}
+			}
+			if tc.declared != "" {
+				if relayInfo.ChannelMeta == nil {
+					relayInfo.ChannelMeta = &relaycommon.ChannelMeta{}
+				}
+				relayInfo.ChannelMeta.ChannelSetting = dto.ChannelSettings{
+					CachePromptTokenSemantic: tc.declared,
+				}
+			}
+
+			usage := &dto.Usage{
+				PromptTokens:     tc.rawPrompt,
+				CompletionTokens: 0,
+				UsageSemantic:    tc.semantic,
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens:         tc.cacheRead,
+					CachedCreationTokens: tc.cacheCreation,
+				},
+			}
+			if tc.legacyClaude {
+				usage.ClaudeCacheCreation5mTokens = 60
+				usage.ClaudeCacheCreation1hTokens = 40
+			}
+
+			summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+
+			assert.Equal(t, tc.wantSummaryPT, summary.PromptTokens, "summary.PromptTokens")
+			assert.Equal(t, tc.wantUpstreamIn, summary.UpstreamPromptTokensIncludeCache, "summary.UpstreamPromptTokensIncludeCache")
+			assert.Equal(t, tc.wantExcludes, summary.InputExcludesCache, "summary.InputExcludesCache")
+			if tc.wantQuota != 0 {
+				assert.Equal(t, tc.wantQuota, summary.Quota, "summary.Quota")
+			}
+		})
+	}
+}
+
+// TestResolvePromptCacheInclusionUndeclaredAutoDetect covers the auto-detect
+// fallbacks when no channel declaration exists, including nil relayInfo /
+// nil ChannelMeta / nil usage inputs.
+func TestResolvePromptCacheInclusionUndeclaredAutoDetect(t *testing.T) {
+	t.Run("nil relayInfo falls back to usage semantic", func(t *testing.T) {
+		included, declared := resolvePromptCacheInclusion(nil, &dto.Usage{UsageSemantic: "anthropic"})
+		assert.False(t, included)
+		assert.False(t, declared)
+
+		included, declared = resolvePromptCacheInclusion(nil, &dto.Usage{UsageSemantic: "openai"})
+		assert.True(t, included)
+		assert.False(t, declared)
+	})
+
+	t.Run("nil ChannelMeta declares nothing", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatOpenAI}
+		included, declared := resolvePromptCacheInclusion(relayInfo, &dto.Usage{UsageSemantic: "openai"})
+		assert.True(t, included)
+		assert.False(t, declared)
+	})
+
+	t.Run("nil usage is treated as undeclared", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude}
+		included, declared := resolvePromptCacheInclusion(relayInfo, nil)
+		assert.True(t, included)
+		assert.False(t, declared)
+	})
+
+	t.Run("declared semantic wins over usage semantic", func(t *testing.T) {
+		relayInfo := &relaycommon.RelayInfo{
+			RelayFormat: types.RelayFormatOpenAI,
+			ChannelMeta: &relaycommon.ChannelMeta{
+				ChannelSetting: dto.ChannelSettings{CachePromptTokenSemantic: cacheSemanticExcludes},
+			},
+		}
+		included, declared := resolvePromptCacheInclusion(relayInfo, &dto.Usage{UsageSemantic: "openai"})
+		assert.False(t, included)
+		assert.True(t, declared)
+	})
+}
+
 func TestComposeTieredTextQuotaKeepsToolCallSurcharges(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
