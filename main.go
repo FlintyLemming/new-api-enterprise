@@ -29,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/service/langfuseconfig"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -107,6 +108,9 @@ func main() {
 
 	// 热更新配置
 	go model.SyncOptions(common.SyncFrequency)
+
+	// Langfuse 配置整组 reconcile，独立于逐 key 的通用 option 同步
+	go langfuseconfig.StartReconcileLoop(common.SyncFrequency)
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
 	go authz.StartPolicySync(common.SyncFrequency)
@@ -323,6 +327,12 @@ func InitResources() error {
 		}
 	}
 	model.InitOptionMap()
+
+	// 从完整的 langfuse_setting.* 持久化集合发布一次 runtime binding；
+	// 失败只告警，不阻断启动。
+	if err := langfuseconfig.Reconcile(); err != nil {
+		common.SysError("langfuse initial reconcile failed: " + err.Error())
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
