@@ -204,19 +204,23 @@ func TestValidateAccepts(t *testing.T) {
 		{"disabled defaults", func(s *LangfuseSetting) { *s = DefaultLangfuseSetting }},
 		// reservation = 2*65536 + 524288 = 655360 (640 KiB) <= 536870912;
 		// max_queued_span_bytes = 655360 <= 9,000,000;
-		// (64 + 3*16) * 655360 = 73,400,320 <= 256 MiB.
+		// (64 + 3*16) * 655360 = 73,400,320 <= 2 GiB.
 		{"enabled defaults", func(s *LangfuseSetting) {}},
 		{"sample rate zero pauses collection", func(s *LangfuseSetting) { s.SampleRate = 0 }},
 		{"sample rate one", func(s *LangfuseSetting) { s.SampleRate = 1 }},
 		// Every declared per-field maximum must be reachable with the other
 		// fields at their minimum, otherwise the API would advertise a bound
 		// that can never be saved.
+		// 2*4194304 + 65536 = 8,454,144 <= 9,000,000;
+		// (16 + 3*1) * 8,454,144 = 160,628,736 <= 2 GiB.
 		{"max content bytes reachable", func(s *LangfuseSetting) {
-			s.MaxContentBytes = 1048576
+			s.MaxContentBytes = 4194304
 			s.MaxResponseBytes = 65536
 			s.QueueSize = 16
 			s.BatchSize = 1
 		}},
+		// 2*4096 + 8388608 = 8,396,800 <= 9,000,000;
+		// (16 + 3*1) * 8,396,800 = 159,539,200 <= 2 GiB.
 		{"max response bytes reachable", func(s *LangfuseSetting) {
 			s.MaxContentBytes = 4096
 			s.MaxResponseBytes = 8388608
@@ -250,13 +254,35 @@ func TestValidateAccepts(t *testing.T) {
 	}
 }
 
+// The audit-completeness configuration this deployment runs: a 4 MiB content
+// capture keeps long-context prompts whole instead of truncating them. It is
+// the contract behind the raised ceilings, so it must stay saveable.
+func TestValidateAcceptsAuditContentCapture(t *testing.T) {
+	s := validSetting()
+	s.SendContent = true
+	s.MaxContentBytes = 4194304
+	s.MaxResponseBytes = 524288
+	s.QueueSize = 128
+	s.BatchSize = 4
+	s.MaxInFlightCaptureBytes = 8589934592
+
+	require.NoError(t, Validate(s))
+
+	// reservation = 2*4194304 + 524288 = 8,912,896 <= 9,000,000 envelope;
+	// (128 + 3*4) * 8,912,896 = 1,247,805,440 <= 2 GiB planning ceiling.
+	reservation := 2*s.MaxContentBytes + s.MaxResponseBytes
+	assert.Equal(t, 8912896, reservation)
+	assert.LessOrEqual(t, int64(reservation), int64(maxQueuedSpanBytesLimit))
+	assert.LessOrEqual(t, int64(s.QueueSize+3*s.BatchSize)*int64(reservation), queueBodyPlanningLimit)
+}
+
 func TestValidateRejects(t *testing.T) {
 	cases := []struct {
 		name   string
 		mutate func(*LangfuseSetting)
 	}{
 		{"content bytes below range", func(s *LangfuseSetting) { s.MaxContentBytes = 4095 }},
-		{"content bytes above range", func(s *LangfuseSetting) { s.MaxContentBytes = 1048577 }},
+		{"content bytes above range", func(s *LangfuseSetting) { s.MaxContentBytes = 4194305 }},
 		{"response bytes below range", func(s *LangfuseSetting) { s.MaxResponseBytes = 65535 }},
 		{"response bytes above range", func(s *LangfuseSetting) { s.MaxResponseBytes = 8388609 }},
 		{"session body bytes below range", func(s *LangfuseSetting) { s.MaxSessionBodyBytes = 1023 }},
@@ -270,16 +296,17 @@ func TestValidateRejects(t *testing.T) {
 		// only requires an explicit finite range for the flush interval.
 		{"flush interval below range", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 0 }},
 		{"flush interval above range", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 301 }},
-		// 2*1048576 + 8388608 = 10,485,760 > 9,000,000 single-span envelope.
+		// 2*4194304 + 8388608 = 16,777,216 > 9,000,000 single-span envelope.
 		{"single span envelope exceeded", func(s *LangfuseSetting) {
-			s.MaxContentBytes = 1048576
+			s.MaxContentBytes = 4194304
 			s.MaxResponseBytes = 8388608
 		}},
-		// (256 + 3*32) * (2*1048576 + 8388608 clamped away) — keep the span
-		// envelope legal but blow the 256 MiB queue/batch body planning bound.
+		// Span envelope stays legal (2*4194304 + 524288 = 8,912,896 <= 9,000,000)
+		// but (256 + 3*32) * 8,912,896 = 3,137,339,392 blows the 2 GiB
+		// queue/batch body planning bound.
 		{"queue body planning exceeded", func(s *LangfuseSetting) {
-			s.MaxContentBytes = 4096
-			s.MaxResponseBytes = 8388608
+			s.MaxContentBytes = 4194304
+			s.MaxResponseBytes = 524288
 			s.QueueSize = 256
 			s.BatchSize = 32
 		}},

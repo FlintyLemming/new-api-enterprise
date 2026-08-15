@@ -229,7 +229,7 @@ const schemaCases: SchemaCase[] = [
   },
   {
     name: 'a content limit above the maximum',
-    overrides: { max_content_bytes: 1048577 },
+    overrides: { max_content_bytes: 4194305 },
     expected: {
       path: 'max_content_bytes',
       message: LANGFUSE_VALIDATION_MESSAGES.contentRange,
@@ -328,10 +328,25 @@ const schemaCases: SchemaCase[] = [
     // minimum, so the UI never advertises a bound that cannot be saved.
     name: 'the content maximum with everything else at its minimum',
     overrides: {
-      max_content_bytes: 1048576,
+      max_content_bytes: 4194304,
       max_response_bytes: 65536,
       queue_size: 16,
       batch_size: 1,
+    },
+    expected: 'accepted',
+  },
+  {
+    // The audit-completeness configuration the deployment runs: a 4 MiB content
+    // capture keeps long-context prompts whole. Reservation is
+    // 2*4194304 + 524288 = 8,912,896 and planning (128 + 3*4) * 8,912,896 =
+    // 1,247,805,440, both inside the raised ceilings.
+    name: 'the 4 MiB audit content capture at a realistic queue and batch',
+    overrides: {
+      max_content_bytes: 4194304,
+      max_response_bytes: 524288,
+      max_in_flight_capture_bytes: 8589934592,
+      queue_size: 128,
+      batch_size: 4,
     },
     expected: 'accepted',
   },
@@ -347,7 +362,7 @@ const schemaCases: SchemaCase[] = [
   },
   {
     name: 'both content and response at their maximum',
-    overrides: { max_content_bytes: 1048576, max_response_bytes: 8388608 },
+    overrides: { max_content_bytes: 4194304, max_response_bytes: 8388608 },
     expected: {
       path: 'max_response_bytes',
       message: LANGFUSE_VALIDATION_MESSAGES.spanBodyLimit,
@@ -367,10 +382,12 @@ const schemaCases: SchemaCase[] = [
     expected: 'accepted',
   },
   {
-    name: 'a queue and batch pair whose planned span bodies exceed 256 MiB',
+    // The span envelope stays legal at 8,912,896 bytes, but
+    // (256 + 3*32) * 8,912,896 = 3,137,339,392 exceeds the planning ceiling.
+    name: 'a queue and batch pair whose planned span bodies exceed 2 GiB',
     overrides: {
-      max_content_bytes: 1048576,
-      max_response_bytes: 6291456,
+      max_content_bytes: 4194304,
+      max_response_bytes: 524288,
       queue_size: 256,
       batch_size: 32,
     },

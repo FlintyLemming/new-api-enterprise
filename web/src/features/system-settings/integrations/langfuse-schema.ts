@@ -27,7 +27,7 @@ import type { LangfuseSettingsView } from './langfuse-api'
 // visible to the administrator.
 
 export const LANGFUSE_BOUNDS = {
-  contentBytes: { min: 4096, max: 1048576 },
+  contentBytes: { min: 4096, max: 4194304 },
   responseBytes: { min: 65536, max: 8388608 },
   sessionBodyBytes: { min: 1024, max: 65536 },
   queueSize: { min: 16, max: 256 },
@@ -35,8 +35,12 @@ export const LANGFUSE_BOUNDS = {
   flushIntervalSeconds: { min: 1, max: 300 },
   /** Headroom below the single-span warning Langfuse emits on ingestion. */
   maxQueuedSpanBytes: 9_000_000,
-  /** Local planning ceiling for queued, in-flight and encoded span bodies. */
-  queueBodyPlanningBytes: 256 * 1024 * 1024,
+  /**
+   * Local planning ceiling for queued, in-flight and encoded span bodies. Kept
+   * below the 3,168,000,000 bytes the worst legal tuple can plan, so the rule
+   * stays reachable instead of becoming dead validation.
+   */
+  queueBodyPlanningBytes: 2 * 1024 * 1024 * 1024,
 } as const
 
 /** Presets only ever add one exact path; none of them is selected by default. */
@@ -60,7 +64,7 @@ export const LANGFUSE_VALIDATION_MESSAGES = {
     'Environment accepts up to 40 lowercase letters, digits, hyphens and underscores',
   environmentReserved: 'Environment cannot start with langfuse',
   sampleRateRange: 'Sample rate must be between 0 and 1',
-  contentRange: 'Content capture limit must be between 4096 and 1048576 bytes',
+  contentRange: 'Content capture limit must be between 4096 and 4194304 bytes',
   responseRange:
     'Response capture limit must be between 65536 and 8388608 bytes',
   sessionBodyRange:
@@ -74,7 +78,7 @@ export const LANGFUSE_VALIDATION_MESSAGES = {
   spanBodyLimit:
     'Two content limits plus one response limit cannot exceed 9000000 bytes',
   queuePlanningLimit:
-    'Queue and batch planning cannot exceed 256 MiB of span bodies',
+    'Queue and batch planning cannot exceed 2 GiB of span bodies',
   headerNameInvalid: 'Enter valid HTTP header names, one per line',
   headerNameCredential: 'Credential headers cannot be used as a session source',
   bodyPathWhitespace: 'Session body paths cannot start or end with spaces',

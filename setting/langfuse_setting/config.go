@@ -31,7 +31,7 @@ const TracesPath = "/api/public/otel/v1/traces"
 // bound that the whole-group tuple check makes impossible to save.
 const (
 	minContentBytes = 4096
-	maxContentBytes = 1048576
+	maxContentBytes = 4194304
 
 	minResponseBytes = 65536
 	maxResponseBytes = 8388608
@@ -54,7 +54,12 @@ const (
 	// Langfuse emits, and the local body planning ceiling for the BSP queue,
 	// the current batch and encode/compress buffers.
 	maxQueuedSpanBytesLimit = 9_000_000
-	queueBodyPlanningLimit  = 256 * 1024 * 1024
+	// 2 GiB, deliberately below the 3,168,000,000 bytes (2.95 GiB) that the
+	// worst legal tuple (queue 256, batch 32, span envelope 9,000,000) can plan.
+	// A ceiling of 3 GiB or more could never be crossed, turning this rule into
+	// dead code; 2 GiB still admits a 4 MiB content capture at a realistic
+	// queue/batch while keeping the check able to reject an oversized one.
+	queueBodyPlanningLimit int64 = 2 * 1024 * 1024 * 1024
 )
 
 // RFC 7230 token characters, the only ones allowed in an HTTP field name.

@@ -465,7 +465,7 @@ export function LangfuseSettingsSection() {
                   <Input
                     type='number'
                     min={4096}
-                    max={1048576}
+                    max={4194304}
                     step={1024}
                     {...safeNumberFieldProps(field)}
                   />
