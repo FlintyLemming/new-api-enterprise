@@ -78,7 +78,7 @@ func TestOtlpExportOverHTTPHitsTracesPathWithGzipAndBasicAuth(t *testing.T) {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
-	options, err := buildExporterOptions(snapshotForHost(t, server.URL))
+	options, err := buildExporterOptions(snapshotForHost(t, server.URL), newForbiddenTransport())
 	require.NoError(t, err)
 	exportProbeSpan(t, options)
 
@@ -99,7 +99,7 @@ func TestOtlpExportOverHTTPSPerformsTLS(t *testing.T) {
 	server := httptest.NewTLSServer(mux)
 	t.Cleanup(server.Close)
 
-	options, err := buildExporterOptions(snapshotForHost(t, server.URL))
+	options, err := buildExporterOptions(snapshotForHost(t, server.URL), newForbiddenTransport())
 	require.NoError(t, err)
 	// The exporter's own client cannot validate the ad hoc test certificate, so
 	// the trust store is swapped while everything derived from the snapshot
@@ -122,7 +122,7 @@ func TestOtlpExportKeepsConfiguredBasePath(t *testing.T) {
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 
-	options, err := buildExporterOptions(snapshotForHost(t, server.URL+"/langfuse/"))
+	options, err := buildExporterOptions(snapshotForHost(t, server.URL+"/langfuse/"), newForbiddenTransport())
 	require.NoError(t, err)
 	exportProbeSpan(t, options)
 
@@ -141,7 +141,7 @@ func TestOtlpExportIgnoresOtlpEndpointEnvironment(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://evil.example")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://evil.example/api/public/otel/v1/traces")
 
-	options, err := buildExporterOptions(snapshotForHost(t, server.URL))
+	options, err := buildExporterOptions(snapshotForHost(t, server.URL), newForbiddenTransport())
 	require.NoError(t, err)
 	exportProbeSpan(t, options)
 
