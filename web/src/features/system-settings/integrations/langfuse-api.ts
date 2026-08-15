@@ -43,8 +43,10 @@ export interface LangfuseSettingsView {
   flush_interval_seconds: number
 }
 
-export interface LangfuseSettingsUpdate
-  extends Omit<LangfuseSettingsView, 'secret_key_configured'> {
+export interface LangfuseSettingsUpdate extends Omit<
+  LangfuseSettingsView,
+  'secret_key_configured'
+> {
   /** Empty keeps the stored secret; the UI never receives the current value. */
   secret_key: string
   /** Only accepted by the backend when the result stays disabled. */
