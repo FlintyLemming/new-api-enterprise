@@ -1,0 +1,24 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_68b2","object":"response","status":"in_progress","model":"gpt-4.1-2025-04-14","output":[]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_68b2","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"msg_68b2","output_index":0,"content_index":0,"delta":"Paris is sunny "}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":3,"item_id":"msg_68b2","output_index":0,"content_index":0,"delta":"and 18°C."}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_68b2","type":"function_call","status":"in_progress","call_id":"call_r2","name":"get_weather","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":5,"item_id":"fc_68b2","output_index":1,"delta":"{\"city\":"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":6,"item_id":"fc_68b2","output_index":1,"delta":"\"Paris\"}"}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":7,"response":{"id":"resp_68b2","object":"response","status":"completed","model":"gpt-4.1-2025-04-14","usage":{"input_tokens":40,"output_tokens":22,"total_tokens":62}}}
+

@@ -1,0 +1,34 @@
+{
+  "id": "chatcmpl-Bx1qk2Zm",
+  "object": "chat.completion",
+  "created": 1740000000,
+  "model": "gpt-4o-2024-08-06",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The weather in Paris is 18°C.",
+        "reasoning_content": "The user asked about Paris, so the weather tool is needed.",
+        "tool_calls": [
+          {
+            "id": "call_ax1",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\"}"
+            }
+          }
+        ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 42,
+    "completion_tokens": 19,
+    "total_tokens": 61
+  },
+  "system_fingerprint": "fp_9c1f2b"
+}

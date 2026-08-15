@@ -1,0 +1,18 @@
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"reasoning_content":"The user asked about Paris, "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"reasoning_content":"so the weather tool is needed."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"content":"The weather in Paris "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"content":"is 18°C."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_ax2","type":"function","function":{"name":"get_weather","arguments":"{\"city\":"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Paris\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-Bx2sse","object":"chat.completion.chunk","created":1740000001,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":42,"completion_tokens":19,"total_tokens":61}}
+
+data: [DONE]
+

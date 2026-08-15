@@ -1,0 +1,45 @@
+{
+  "id": "resp_68a1",
+  "object": "response",
+  "created_at": 1740000002,
+  "status": "completed",
+  "model": "gpt-4.1-2025-04-14",
+  "output": [
+    {
+      "id": "rs_68a1",
+      "type": "reasoning",
+      "summary": []
+    },
+    {
+      "id": "msg_68a1",
+      "type": "message",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Paris is sunny ",
+          "annotations": []
+        },
+        {
+          "type": "output_text",
+          "text": "and 18°C.",
+          "annotations": []
+        }
+      ]
+    },
+    {
+      "id": "fc_68a1",
+      "type": "function_call",
+      "status": "completed",
+      "call_id": "call_r1",
+      "name": "get_weather",
+      "arguments": "{\"city\":\"Paris\"}"
+    }
+  ],
+  "usage": {
+    "input_tokens": 40,
+    "output_tokens": 22,
+    "total_tokens": 62
+  }
+}
