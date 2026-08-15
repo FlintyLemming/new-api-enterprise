@@ -1,8 +1,10 @@
 package langfuse
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -82,6 +84,52 @@ func TestDirectImportWhitelistDistinguishesRelaykitFromRootPackages(t *testing.T
 		assert.False(t, allowedDirectImports[modulePath+forbidden],
 			"%s must not be directly importable from service/langfuse", modulePath+forbidden)
 	}
+}
+
+// TestAttemptHookHasExactlyOneCallSite pins the design §5.2 invariant that one
+// real upstream call produces one generation. Adding the hook to DoApiRequest,
+// DoFormRequest or the exported DoRequest as well would make every request
+// record two attempts and spuriously mark the first one superseded.
+func TestAttemptHookHasExactlyOneCallSite(t *testing.T) {
+	type callSite struct{ file, function string }
+	var sites []callSite
+
+	relayDir := filepath.Join(packageDir(t), "..", "..", "relay")
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(relayDir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return err
+		}
+		parsed, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			return parseErr
+		}
+		for _, decl := range parsed.Decls {
+			function, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			ast.Inspect(function, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				selector, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || selector.Sel.Name != "BeginAttempt" {
+					return true
+				}
+				if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Name == "langfuse" {
+					sites = append(sites, callSite{file: filepath.Base(path), function: function.Name.Name})
+				}
+				return true
+			})
+		}
+		return nil
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []callSite{{file: "api_request.go", function: "doRequest"}}, sites,
+		"BeginAttempt belongs to the private doRequest alone")
 }
 
 func listDeps(t *testing.T, pattern string) []string {
