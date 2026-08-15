@@ -1,6 +1,7 @@
 package langfuse_setting
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,4 +85,305 @@ func TestSettingFromOptionMapDoesNotMutateDefaults(t *testing.T) {
 
 	assert.Equal(t, 64, DefaultLangfuseSetting.QueueSize)
 	assert.Empty(t, DefaultLangfuseSetting.SessionHeaderNames)
+}
+
+func TestNormalizeHost(t *testing.T) {
+	cases := []struct {
+		name          string
+		raw           string
+		wantScheme    string
+		wantAuthority string
+		wantBasePath  string
+		wantTracesURL string
+	}{
+		{
+			name:          "bare host with port",
+			raw:           "http://langfuse:3000",
+			wantScheme:    "http",
+			wantAuthority: "langfuse:3000",
+			wantBasePath:  "",
+			wantTracesURL: "http://langfuse:3000/api/public/otel/v1/traces",
+		},
+		{
+			name:          "sub path with trailing slash",
+			raw:           "https://x.example/langfuse/",
+			wantScheme:    "https",
+			wantAuthority: "x.example",
+			wantBasePath:  "/langfuse",
+			wantTracesURL: "https://x.example/langfuse/api/public/otel/v1/traces",
+		},
+		{
+			name:          "duplicated separators are cleaned",
+			raw:           "https://x.example//a//b",
+			wantScheme:    "https",
+			wantAuthority: "x.example",
+			wantBasePath:  "/a/b",
+			wantTracesURL: "https://x.example/a/b/api/public/otel/v1/traces",
+		},
+		{
+			name:          "ipv6 literal keeps brackets",
+			raw:           "http://[::1]:3000",
+			wantScheme:    "http",
+			wantAuthority: "[::1]:3000",
+			wantBasePath:  "",
+			wantTracesURL: "http://[::1]:3000/api/public/otel/v1/traces",
+		},
+		{
+			name:          "default port host",
+			raw:           "https://x.example",
+			wantScheme:    "https",
+			wantAuthority: "x.example",
+			wantBasePath:  "",
+			wantTracesURL: "https://x.example/api/public/otel/v1/traces",
+		},
+		{
+			name:          "scheme is lower cased",
+			raw:           "  HTTPS://x.example/  ",
+			wantScheme:    "https",
+			wantAuthority: "x.example",
+			wantBasePath:  "",
+			wantTracesURL: "https://x.example/api/public/otel/v1/traces",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme, authority, basePath, err := NormalizeHost(tc.raw)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantScheme, scheme)
+			assert.Equal(t, tc.wantAuthority, authority)
+			assert.Equal(t, tc.wantBasePath, basePath)
+			assert.Equal(t, tc.wantTracesURL, BuildTracesURL(scheme, authority, basePath))
+		})
+	}
+}
+
+func TestNormalizeHostRejects(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"empty", ""},
+		{"unsupported scheme", "ftp://x"},
+		{"missing scheme", "x.example"},
+		{"scheme relative", "//x.example"},
+		{"missing authority", "http:///path"},
+		{"userinfo", "https://u:p@x"},
+		{"query", "https://x?q=1"},
+		{"forced empty query", "https://x/path?"},
+		{"fragment", "https://x#f"},
+		{"encoded path", "https://x/a%2Fb"},
+		{"backslash in path", "https://x/a\\b"},
+		{"space in path", "https://x/a b"},
+		{"full traces path", "https://x/api/public/otel/v1/traces"},
+		{"full traces path with trailing slash", "https://x/langfuse/api/public/otel/v1/traces/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, _, err := NormalizeHost(tc.raw)
+			assert.Error(t, err)
+		})
+	}
+}
+
+// validSetting is the default configuration turned into a valid enabled one,
+// so each validation case only has to state the field it changes.
+func validSetting() LangfuseSetting {
+	s := DefaultLangfuseSetting
+	s.Enabled = true
+	s.Host = "http://langfuse:3000"
+	s.PublicKey = "pk-lf-1"
+	s.SecretKey = "sk-lf-1"
+	return s
+}
+
+func TestValidateAccepts(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*LangfuseSetting)
+	}{
+		{"disabled defaults", func(s *LangfuseSetting) { *s = DefaultLangfuseSetting }},
+		// reservation = 2*65536 + 524288 = 655360 (640 KiB) <= 536870912;
+		// max_queued_span_bytes = 655360 <= 9,000,000;
+		// (64 + 3*16) * 655360 = 73,400,320 <= 256 MiB.
+		{"enabled defaults", func(s *LangfuseSetting) {}},
+		{"sample rate zero pauses collection", func(s *LangfuseSetting) { s.SampleRate = 0 }},
+		{"sample rate one", func(s *LangfuseSetting) { s.SampleRate = 1 }},
+		// Every declared per-field maximum must be reachable with the other
+		// fields at their minimum, otherwise the API would advertise a bound
+		// that can never be saved.
+		{"max content bytes reachable", func(s *LangfuseSetting) {
+			s.MaxContentBytes = 1048576
+			s.MaxResponseBytes = 65536
+			s.QueueSize = 16
+			s.BatchSize = 1
+		}},
+		{"max response bytes reachable", func(s *LangfuseSetting) {
+			s.MaxContentBytes = 4096
+			s.MaxResponseBytes = 8388608
+			s.QueueSize = 16
+			s.BatchSize = 1
+		}},
+		{"capture budget may equal reservation", func(s *LangfuseSetting) {
+			s.MaxInFlightCaptureBytes = 2*s.MaxContentBytes + s.MaxResponseBytes
+		}},
+		{"session limits at bounds", func(s *LangfuseSetting) { s.MaxSessionBodyBytes = 1024 }},
+		{"flush interval bounds", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 300 }},
+		{"batch equal to queue", func(s *LangfuseSetting) { s.QueueSize = 32; s.BatchSize = 32 }},
+		{"session headers and paths", func(s *LangfuseSetting) {
+			s.SessionHeaderNames = []string{"X-Conversation-Id", "X-Session-Id"}
+			s.SessionBodyPaths = []string{"metadata.session_id", "chat_id"}
+		}},
+		{"environment charset", func(s *LangfuseSetting) { s.Environment = "prod-eu_1" }},
+		{"disabled keeps empty keys", func(s *LangfuseSetting) {
+			s.Enabled = false
+			s.PublicKey = ""
+			s.SecretKey = ""
+			s.Host = ""
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := validSetting()
+			tc.mutate(&s)
+			assert.NoError(t, Validate(s))
+		})
+	}
+}
+
+func TestValidateRejects(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*LangfuseSetting)
+	}{
+		{"content bytes below range", func(s *LangfuseSetting) { s.MaxContentBytes = 4095 }},
+		{"content bytes above range", func(s *LangfuseSetting) { s.MaxContentBytes = 1048577 }},
+		{"response bytes below range", func(s *LangfuseSetting) { s.MaxResponseBytes = 65535 }},
+		{"response bytes above range", func(s *LangfuseSetting) { s.MaxResponseBytes = 8388609 }},
+		{"session body bytes below range", func(s *LangfuseSetting) { s.MaxSessionBodyBytes = 1023 }},
+		{"session body bytes above range", func(s *LangfuseSetting) { s.MaxSessionBodyBytes = 65537 }},
+		{"queue size below range", func(s *LangfuseSetting) { s.QueueSize = 15 }},
+		{"queue size above range", func(s *LangfuseSetting) { s.QueueSize = 257 }},
+		{"batch size below range", func(s *LangfuseSetting) { s.BatchSize = 0 }},
+		{"batch size above range", func(s *LangfuseSetting) { s.BatchSize = 33 }},
+		{"batch larger than queue", func(s *LangfuseSetting) { s.QueueSize = 16; s.BatchSize = 17 }},
+		// 1-300s is the conservative bound this plan introduces; the design
+		// only requires an explicit finite range for the flush interval.
+		{"flush interval below range", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 0 }},
+		{"flush interval above range", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 301 }},
+		// 2*1048576 + 8388608 = 10,485,760 > 9,000,000 single-span envelope.
+		{"single span envelope exceeded", func(s *LangfuseSetting) {
+			s.MaxContentBytes = 1048576
+			s.MaxResponseBytes = 8388608
+		}},
+		// (256 + 3*32) * (2*1048576 + 8388608 clamped away) — keep the span
+		// envelope legal but blow the 256 MiB queue/batch body planning bound.
+		{"queue body planning exceeded", func(s *LangfuseSetting) {
+			s.MaxContentBytes = 4096
+			s.MaxResponseBytes = 8388608
+			s.QueueSize = 256
+			s.BatchSize = 32
+		}},
+		{"capture budget below reservation", func(s *LangfuseSetting) {
+			s.MaxInFlightCaptureBytes = 2*s.MaxContentBytes + s.MaxResponseBytes - 1
+		}},
+		{"capture budget zero", func(s *LangfuseSetting) { s.MaxInFlightCaptureBytes = 0 }},
+		{"capture budget negative", func(s *LangfuseSetting) { s.MaxInFlightCaptureBytes = -1 }},
+		{"sample rate below range", func(s *LangfuseSetting) { s.SampleRate = -0.1 }},
+		{"sample rate above range", func(s *LangfuseSetting) { s.SampleRate = 1.1 }},
+		{"environment empty", func(s *LangfuseSetting) { s.Environment = "" }},
+		{"environment reserved prefix", func(s *LangfuseSetting) { s.Environment = "langfuse-prod" }},
+		{"environment upper case", func(s *LangfuseSetting) { s.Environment = "A_b" }},
+		{"environment too long", func(s *LangfuseSetting) { s.Environment = strings.Repeat("a", 41) }},
+		{"enabled without public key", func(s *LangfuseSetting) { s.PublicKey = "" }},
+		{"enabled without secret key", func(s *LangfuseSetting) { s.SecretKey = "" }},
+		{"enabled without host", func(s *LangfuseSetting) { s.Host = "" }},
+		{"invalid host", func(s *LangfuseSetting) { s.Host = "langfuse:3000" }},
+		{"invalid host while disabled", func(s *LangfuseSetting) { s.Enabled = false; s.Host = "ftp://x" }},
+		{"credential header authorization", func(s *LangfuseSetting) {
+			s.SessionHeaderNames = []string{"authorization"}
+		}},
+		{"credential header cookie mixed case", func(s *LangfuseSetting) {
+			s.SessionHeaderNames = []string{"CoOkIe"}
+		}},
+		{"credential header proxy authorization", func(s *LangfuseSetting) {
+			s.SessionHeaderNames = []string{"Proxy-Authorization"}
+		}},
+		{"header with space", func(s *LangfuseSetting) { s.SessionHeaderNames = []string{"X Session"} }},
+		{"header with colon", func(s *LangfuseSetting) { s.SessionHeaderNames = []string{"X-Session:"} }},
+		{"header empty", func(s *LangfuseSetting) { s.SessionHeaderNames = []string{""} }},
+		{"body path empty", func(s *LangfuseSetting) { s.SessionBodyPaths = []string{""} }},
+		{"body path blank", func(s *LangfuseSetting) { s.SessionBodyPaths = []string{"   "} }},
+		{"body path padded", func(s *LangfuseSetting) { s.SessionBodyPaths = []string{" chat_id"} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := validSetting()
+			tc.mutate(&s)
+			assert.Error(t, Validate(s))
+		})
+	}
+}
+
+func TestBuildSnapshot(t *testing.T) {
+	s := validSetting()
+	s.SessionHeaderNames = []string{"X-Conversation-Id"}
+	s.SessionBodyPaths = []string{"metadata.session_id"}
+
+	snapshot, err := BuildSnapshot(s, 7)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(7), snapshot.Version)
+	assert.Equal(t, "http", snapshot.Scheme)
+	assert.Equal(t, "langfuse:3000", snapshot.Authority)
+	assert.Equal(t, "", snapshot.BasePath)
+	assert.Equal(t, "http://langfuse:3000/api/public/otel/v1/traces", snapshot.TracesURL)
+	assert.True(t, snapshot.Enabled)
+
+	// Slices must be deep copied so later mutation of the caller's setting can
+	// never be observed through the published immutable snapshot.
+	s.SessionHeaderNames[0] = "X-Mutated"
+	assert.Equal(t, []string{"X-Conversation-Id"}, snapshot.SessionHeaderNames)
+}
+
+func TestBuildSnapshotDisabledWithoutHost(t *testing.T) {
+	snapshot, err := BuildSnapshot(DefaultLangfuseSetting, 0)
+	require.NoError(t, err)
+
+	assert.False(t, snapshot.Enabled)
+	assert.Equal(t, "", snapshot.TracesURL)
+	assert.Equal(t, "", snapshot.Scheme)
+	assert.NotNil(t, snapshot.SessionHeaderNames)
+	assert.Empty(t, snapshot.SessionHeaderNames)
+	assert.NotNil(t, snapshot.SessionBodyPaths)
+	assert.Empty(t, snapshot.SessionBodyPaths)
+}
+
+func TestBuildSnapshotRejectsInvalidSetting(t *testing.T) {
+	s := validSetting()
+	s.SecretKey = ""
+
+	_, err := BuildSnapshot(s, 1)
+	assert.Error(t, err)
+}
+
+func TestSnapshotEqualConfigIgnoresVersion(t *testing.T) {
+	s := validSetting()
+	s.SessionHeaderNames = []string{"X-Conversation-Id"}
+
+	a, err := BuildSnapshot(s, 1)
+	require.NoError(t, err)
+	b, err := BuildSnapshot(s, 99)
+	require.NoError(t, err)
+	assert.True(t, a.EqualConfig(b))
+
+	s.SessionHeaderNames = []string{"X-Other-Id"}
+	c, err := BuildSnapshot(s, 1)
+	require.NoError(t, err)
+	assert.False(t, a.EqualConfig(c))
+
+	s.SessionHeaderNames = []string{"X-Conversation-Id"}
+	s.SampleRate = 0.5
+	d, err := BuildSnapshot(s, 1)
+	require.NoError(t, err)
+	assert.False(t, a.EqualConfig(d))
 }
