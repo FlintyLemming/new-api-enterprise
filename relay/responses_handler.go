@@ -162,10 +162,19 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		return nil
 	}
 
-	if strings.HasPrefix(info.OriginModelName, "gpt-4o-audio") {
+	if responsesSettlesAsAudio(info) {
 		service.PostAudioConsumeQuota(c, info, usageDto, "")
 	} else {
 		service.PostTextConsumeQuota(c, info, usageDto, nil)
 	}
 	return nil
+}
+
+// responsesSettlesAsAudio reports whether a Responses reply is settled through
+// the audio path. The rule is deliberately different from Chat Completions: it
+// is the origin model prefix alone, so audio tokens or configured audio ratios
+// never move another model onto the audio path. The compact mode settles as
+// text before this rule is reached.
+func responsesSettlesAsAudio(info *relaycommon.RelayInfo) bool {
+	return strings.HasPrefix(info.OriginModelName, "gpt-4o-audio")
 }

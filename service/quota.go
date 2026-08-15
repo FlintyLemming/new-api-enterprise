@@ -15,6 +15,7 @@ import (
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service/langfuse"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -353,8 +354,30 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+	settleErr := SettleBilling(ctx, relayInfo, quota)
+	if settleErr != nil {
+		logger.LogError(ctx, "error settling billing: "+settleErr.Error())
+	}
+
+	if recorder := langfuse.FromContext(ctx); recorder != nil {
+		// The audio path exports the same four token buckets it bills from; the
+		// quota is the tiered-adjusted value SettleBilling just received, and
+		// the rate is read next to it so the worker never converts with a newer
+		// one (design §8.4).
+		recorder.RecordUsage(langfuse.UsageRecord{
+			Kind:              langfuse.UsageKindAudio,
+			Available:         checkUsageSourcesValid(usage),
+			ModelName:         relayInfo.GetUpstreamModelName(),
+			InputTokens:       textInputTokens,
+			OutputTokens:      textOutTokens,
+			InputAudioTokens:  audioInputTokens,
+			OutputAudioTokens: audioOutTokens,
+			Quota:             quota,
+			QuotaPerUnit:      common.QuotaPerUnit,
+			BillingSource:     normalizeBillingSource(relayInfo, relayInfo.PriceData.FreeModel),
+			Settled:           settleErr == nil,
+			SettlementFailed:  settleErr != nil,
+		})
 	}
 
 	logModel := relayInfo.OriginModelName

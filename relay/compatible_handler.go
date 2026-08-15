@@ -81,10 +81,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			return newApiErr
 		}
 
-		var containAudioTokens = usage.CompletionTokenDetails.AudioTokens > 0 || usage.PromptTokensDetails.AudioTokens > 0
-		var containsAudioRatios = ratio_setting.ContainsAudioRatio(info.OriginModelName) || ratio_setting.ContainsAudioCompletionRatio(info.OriginModelName)
-
-		if containAudioTokens && containsAudioRatios {
+		if settlesAsAudioUsage(info, usage) {
 			service.PostAudioConsumeQuota(c, info, usage, "")
 		} else {
 			service.PostTextConsumeQuota(c, info, usage, nil)
@@ -210,13 +207,22 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		return newApiErr
 	}
 
-	var containAudioTokens = usage.(*dto.Usage).CompletionTokenDetails.AudioTokens > 0 || usage.(*dto.Usage).PromptTokensDetails.AudioTokens > 0
-	var containsAudioRatios = ratio_setting.ContainsAudioRatio(info.OriginModelName) || ratio_setting.ContainsAudioCompletionRatio(info.OriginModelName)
-
-	if containAudioTokens && containsAudioRatios {
+	if settlesAsAudioUsage(info, usage.(*dto.Usage)) {
 		service.PostAudioConsumeQuota(c, info, usage.(*dto.Usage), "")
 	} else {
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
+}
+
+// settlesAsAudioUsage reports whether a Chat Completions reply is settled
+// through the audio path. Both halves are required: the reply really carries
+// audio tokens, and the model has an audio ratio configured. A reply with audio
+// tokens but no audio pricing stays on the text path, where those tokens remain
+// part of the base output rather than becoming their own usage bucket.
+func settlesAsAudioUsage(info *relaycommon.RelayInfo, usage *dto.Usage) bool {
+	containsAudioTokens := usage.CompletionTokenDetails.AudioTokens > 0 || usage.PromptTokensDetails.AudioTokens > 0
+	containsAudioRatios := ratio_setting.ContainsAudioRatio(info.OriginModelName) ||
+		ratio_setting.ContainsAudioCompletionRatio(info.OriginModelName)
+	return containsAudioTokens && containsAudioRatios
 }
