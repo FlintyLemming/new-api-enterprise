@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Option struct {
@@ -25,6 +26,25 @@ func AllOption() ([]*Option, error) {
 	var err error
 	err = DB.Find(&options).Error
 	return options, err
+}
+
+// AllOptionsByPrefix returns every persisted option row whose key starts with
+// prefix. `key` is a reserved word, so the dialect-aware clause builder does the
+// quoting instead of hand-written SQL. LIKE only narrows the scan — `_` is a
+// single-character wildcard, so exactness is enforced in Go.
+func AllOptionsByPrefix(prefix string) (map[string]string, error) {
+	var options []Option
+	query := clause.Like{Column: clause.Column{Name: "key"}, Value: prefix + "%"}
+	if err := DB.Where(query).Find(&options).Error; err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(options))
+	for _, option := range options {
+		if strings.HasPrefix(option.Key, prefix) {
+			values[option.Key] = option.Value
+		}
+	}
+	return values, nil
 }
 
 func InitOptionMap() {

@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
+	"github.com/QuantumNous/new-api/setting/langfuse_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -32,6 +33,10 @@ var completionRatioMetaOptionKeys = []string{
 
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
+}
+
+func isLangfuseOptionKey(key string) bool {
+	return strings.HasPrefix(key, langfuse_setting.OptionKeyPrefix)
 }
 
 func isPositiveOptionValue(value string) bool {
@@ -82,6 +87,10 @@ func GetOptions(c *gin.Context) {
 	common.OptionMapRWMutex.Lock()
 	for k, v := range common.OptionMap {
 		if k == "theme.frontend" {
+			continue
+		}
+		// Langfuse 配置只经专用接口读取，避免通用读取暴露密钥或形成第二套配置契约。
+		if isLangfuseOptionKey(k) {
 			continue
 		}
 		value := common.Interface2String(v)
@@ -150,6 +159,14 @@ func UpdateOption(c *gin.Context) {
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
+			return
+		}
+		if isLangfuseOptionKey(option.Key) {
+			// 整组事务写入必须走专用接口，避免 Host/Key 中间状态破坏 exporter。
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Langfuse 配置请使用专用设置接口 /api/option/langfuse",
+			})
 			return
 		}
 	}
