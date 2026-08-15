@@ -390,12 +390,19 @@ func TestCostOmittedReasonFollowsTheDocumentedPriority(t *testing.T) {
 	}{
 		{
 			name:    "provider failure",
-			attempt: attemptValue{ErrCode: "upstream_error"},
+			attempt: attemptValue{Failed: true, ErrCode: "upstream_error"},
+			reason:  CostOmittedAttemptFailed,
+		},
+		{
+			// A provider that reports an empty error code is still a failure:
+			// the flag, not the code, decides.
+			name:    "provider failure without an error code",
+			attempt: attemptValue{Failed: true},
 			reason:  CostOmittedAttemptFailed,
 		},
 		{
 			name:    "superseded outranks the failure it implies",
-			attempt: attemptValue{Superseded: true, ErrCode: "upstream_error"},
+			attempt: attemptValue{Superseded: true, Failed: true, ErrCode: "upstream_error"},
 			reason:  CostOmittedAttemptSuperseded,
 		},
 		{

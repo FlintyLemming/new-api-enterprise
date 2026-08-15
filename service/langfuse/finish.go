@@ -271,7 +271,7 @@ func allAttemptsFailed(attempts []attemptValue) bool {
 }
 
 func attemptFailed(attempt *attemptValue) bool {
-	return attempt.Superseded || attempt.ErrCode != "" || attempt.EndReason == AttemptEndLifecyclePanic
+	return attempt.Superseded || attempt.Failed || attempt.EndReason == AttemptEndLifecyclePanic
 }
 
 // acquireAdmission takes one worker slot. The capacity follows the same

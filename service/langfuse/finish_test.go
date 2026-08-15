@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -308,6 +309,31 @@ func TestGenerationNamesTheModelOnlyWhenItFailed(t *testing.T) {
 	succeeded := attributesOf(ended[2])
 	assert.NotContains(t, succeeded, attribute.Key(attrModelName),
 		"a successful attempt without an authoritative cost must not name its model")
+}
+
+// TestFailedAttemptWithEmptyUpstreamErrorCodeStillFails protects the failure
+// signal itself. Providers are free to answer with an explicit empty "code",
+// and a real E2E against Langfuse showed such an attempt arriving as a normal
+// generation. The presence of the error, not its code, decides.
+func TestFailedAttemptWithEmptyUpstreamErrorCodeStillFails(t *testing.T) {
+	fixture := newFinishFixture(t, nil, `{"model":"gpt-4o"}`)
+	emptyCode := types.WithOpenAIError(
+		types.OpenAIError{Message: "Invalid token", Code: ""}, http.StatusUnauthorized)
+	require.Empty(t, string(emptyCode.GetErrorCode()), "this fixture only matters while the code is empty")
+
+	fixture.runAttempt(t, "azure-eu", "gpt-4o-1", "", emptyCode)
+	fixture.runAttempt(t, "openai-us", "gpt-4o-2", `{"choices":[]}`, nil)
+
+	Finish(fixture.context, fixture.info, nil)
+	ended := fixture.spans.Ended()
+	require.Len(t, ended, 3)
+
+	assert.Equal(t, codes.Error, ended[1].Status().Code,
+		"an upstream failure must reach Langfuse as an error observation")
+	assert.NotEmpty(t, ended[1].Status().Description)
+	assert.Equal(t, "gpt-4o-1", attributesOf(ended[1])[attrModelName],
+		"a failed attempt without usage may name its model")
+	assert.Equal(t, codes.Unset, ended[2].Status().Code, "the successful retry is not an error")
 }
 
 func TestAllowModelNameFollowsTheCostContract(t *testing.T) {

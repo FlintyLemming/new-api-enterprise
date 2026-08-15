@@ -108,6 +108,11 @@ type attemptValue struct {
 	EndCaptured   int64
 	EndLogical    int64
 
+	// Failed records that the attempt ended with an upstream error. It is a
+	// separate flag because the error code is whatever the provider put in its
+	// response body, and an explicit empty "code" would otherwise make a real
+	// failure look like a successful attempt.
+	Failed     bool
 	ErrCode    string
 	ErrMessage string
 	HTTPStatus int

@@ -123,6 +123,7 @@ func closeActiveAttempt(recorder *Recorder, c *gin.Context, info *relaycommon.Re
 	attempt.GeminiFinal = geminiFinal
 	attempt.EndReason = reason
 	if apiErr != nil {
+		attempt.Failed = true
 		attempt.ErrCode = string(apiErr.GetErrorCode())
 		attempt.ErrMessage = apiErr.MaskSensitiveErrorWithStatusCode()
 		attempt.HTTPStatus = apiErr.StatusCode
