@@ -2,9 +2,13 @@ package langfuse
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/setting/langfuse_setting"
 	"github.com/stretchr/testify/assert"
@@ -168,4 +172,206 @@ func TestRuntimeUnbalancedReleaseKeepsAccountingSane(t *testing.T) {
 	assert.True(t, r.WaitIdle(t.Context()))
 	r.Release()
 	assert.True(t, r.WaitIdle(t.Context()))
+}
+
+// blockingCollector accepts OTLP requests but holds each one until release is
+// closed, which is how the tests fill the bounded BatchSpanProcessor queue
+// without relying on timing.
+func blockingCollector(t *testing.T) (*httptest.Server, func()) {
+	t.Helper()
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(func() {
+		unblock()
+		server.Close()
+	})
+	return server, unblock
+}
+
+func queuedSnapshot(t *testing.T, host string, queueSize, batchSize int) Snapshot {
+	t.Helper()
+	setting := enabledSetting()
+	setting.Host = host
+	setting.QueueSize = queueSize
+	setting.BatchSize = batchSize
+	snapshot, err := langfuse_setting.BuildSnapshot(setting, 11)
+	require.NoError(t, err)
+	return snapshot
+}
+
+func newRuntimeForTest(t *testing.T, snapshot Snapshot) *TelemetryRuntime {
+	t.Helper()
+	runtime, err := BuildCandidateRuntime(snapshot)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		runtime.Retire()
+		runtime.shutdownAndReport(shutdownCtx)
+	})
+	return runtime
+}
+
+func TestBuildCandidateRuntimeAssemblesProviderWithoutNetwork(t *testing.T) {
+	// Nothing listens on this port: publishing a configuration must never
+	// depend on the ingestion endpoint being reachable (design §10.2).
+	snapshot := snapshotForHost(t, "http://127.0.0.1:1")
+	runtime := newRuntimeForTest(t, snapshot)
+
+	require.NotNil(t, runtime.provider)
+	require.NotNil(t, runtime.tracer)
+	require.NotNil(t, runtime.exporter)
+	assert.Equal(t, snapshot.Version, runtime.exporter.version)
+	assert.Equal(t, snapshot.TracesURL, runtime.Snapshot.TracesURL)
+}
+
+func TestPublishSnapshotSwapsRuntimeAndRetiresPrevious(t *testing.T) {
+	keepBinding(t)
+
+	first := enabledSetting()
+	first.Host = "http://127.0.0.1:1"
+	require.NoError(t, PublishSnapshot(first))
+	previous := LoadBinding().Runtime
+	require.NotNil(t, previous)
+	assert.EqualValues(t, first.MaxInFlightCaptureBytes, maxInFlightCaptureBytes.Load(),
+		"the capture budget ceiling switches together with the binding")
+
+	second := enabledSetting()
+	second.Host = "http://127.0.0.1:2"
+	require.NoError(t, PublishSnapshot(second))
+
+	current := LoadBinding().Runtime
+	require.NotNil(t, current)
+	assert.NotSame(t, previous, current)
+	assert.False(t, previous.TryAcquire(), "the replaced runtime must stop accepting work")
+	require.True(t, current.TryAcquire())
+	current.Release()
+}
+
+func TestPublishDisabledSnapshotDropsRuntime(t *testing.T) {
+	keepBinding(t)
+
+	enabled := enabledSetting()
+	enabled.Host = "http://127.0.0.1:1"
+	require.NoError(t, PublishSnapshot(enabled))
+	previous := LoadBinding().Runtime
+	require.NotNil(t, previous)
+
+	disabled := enabledSetting()
+	disabled.Enabled = false
+	require.NoError(t, PublishSnapshot(disabled))
+
+	binding := LoadBinding()
+	assert.False(t, binding.Snapshot.Enabled)
+	assert.Nil(t, binding.Runtime, "a disabled binding must not expose a runtime")
+	assert.False(t, previous.TryAcquire())
+}
+
+func TestShutdownAllSkipsRuntimeWithOutstandingLease(t *testing.T) {
+	keepBinding(t)
+	warnings := captureWarnings(t)
+
+	setting := enabledSetting()
+	setting.Host = "http://127.0.0.1:1"
+	require.NoError(t, PublishSnapshot(setting))
+	runtime := LoadBinding().Runtime
+	require.NotNil(t, runtime)
+	require.True(t, runtime.TryAcquire())
+	t.Cleanup(runtime.Release)
+
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	ShutdownAll(expired)
+
+	assert.False(t, LoadBinding().Snapshot.Enabled, "process shutdown must stop new telemetry first")
+	assert.False(t, runtime.shutdownAttempted.Load(),
+		"a provider a worker may still use must not be shut down")
+	assert.Contains(t, warnings.joined(), fmt.Sprintf("version %d", runtime.Snapshot.Version))
+}
+
+func TestQueueDropLowerBoundGrowsAndWarnsUnderPressure(t *testing.T) {
+	server, unblock := blockingCollector(t)
+	runtime := newRuntimeForTest(t, queuedSnapshot(t, server.URL, 16, 1))
+	warnings := captureWarnings(t)
+
+	// The collector is blocked, so the bounded queue fills and the standard
+	// BatchSpanProcessor silently drops the rest.
+	for i := 0; i < 200; i++ {
+		_, span := runtime.tracer.Start(t.Context(), "materialized")
+		span.End()
+		runtime.recordMaterialized(1)
+	}
+
+	assert.Positive(t, runtime.queueDroppedLowerBound(), "dropped spans must remain diagnosable")
+	assert.Contains(t, warnings.joined(), "queue_dropped")
+	unblock()
+}
+
+func TestRetirementSummaryReportsExactDropAfterSuccessfulDrain(t *testing.T) {
+	server, unblock := blockingCollector(t)
+	runtime := newRuntimeForTest(t, queuedSnapshot(t, server.URL, 16, 1))
+
+	for i := 0; i < 200; i++ {
+		_, span := runtime.tracer.Start(t.Context(), "materialized")
+		span.End()
+		runtime.recordMaterialized(1)
+	}
+	require.Positive(t, runtime.queueDroppedLowerBound())
+
+	warnings := captureWarnings(t)
+	unblock()
+	runtime.Retire()
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	require.True(t, runtime.shutdownAndReport(shutdownCtx))
+
+	exact := runtime.materialized.Load() - runtime.exporter.received.Load()
+	summary := warnings.joined()
+	assert.Contains(t, summary, "drain complete")
+	assert.Contains(t, summary, fmt.Sprintf("queue_dropped=%d", exact))
+}
+
+func TestRetirementSummaryStaysIncompleteWhenDrainTimesOut(t *testing.T) {
+	server, _ := blockingCollector(t)
+	runtime := newRuntimeForTest(t, queuedSnapshot(t, server.URL, 16, 1))
+
+	for i := 0; i < 200; i++ {
+		_, span := runtime.tracer.Start(t.Context(), "materialized")
+		span.End()
+		runtime.recordMaterialized(1)
+	}
+
+	warnings := captureWarnings(t)
+	runtime.Retire()
+	shutdownCtx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	assert.False(t, runtime.shutdownAndReport(shutdownCtx))
+
+	summary := warnings.joined()
+	assert.Contains(t, summary, "drain incomplete")
+	assert.Contains(t, summary, fmt.Sprintf("queue_dropped>=%d", runtime.queueDroppedLowerBound()),
+		"an unfinished drain may only report the lower bound")
+}
+
+func TestExportFailuresAreNotCountedAsQueueDrops(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(server.Close)
+
+	runtime := newRuntimeForTest(t, queuedSnapshot(t, server.URL, 16, 1))
+	for i := 0; i < 5; i++ {
+		_, span := runtime.tracer.Start(t.Context(), "failing")
+		span.End()
+		runtime.recordMaterialized(1)
+	}
+	require.NoError(t, runtime.provider.ForceFlush(t.Context()))
+
+	assert.Positive(t, runtime.exporter.failed.Load())
+	assert.Zero(t, runtime.queueDroppedLowerBound(), "export failures are not queue drops")
 }

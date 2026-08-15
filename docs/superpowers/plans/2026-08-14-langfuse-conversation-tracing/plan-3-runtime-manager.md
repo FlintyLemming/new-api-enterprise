@@ -165,7 +165,8 @@ git commit -m "feat(langfuse): 403 non-retryable transport, counting exporter de
 - [ ] **Step 1: 失败测试**：
   1. `DeriveTraceID("abc")` 等于 sha256 前 16 字节；注入 `traceIDHash = func(...)[32]byte{全 1}`→返回的 ID 前 15 字节为 0、末字节 0x01；`requestID=""` 的行为同上（sha256("") 不全零，走正常路径）。
   2. **环境变量覆盖测试（§14.2 硬要求）**：构建 provider 前 `t.Setenv` 把 `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT=1`、`OTEL_SPAN_ATTRIBUTE_VALUE_LENGTH_LIMIT=1`、`OTEL_ATTRIBUTE_COUNT_LIMIT=1`、`OTEL_SPAN_ATTRIBUTE_COUNT_LIMIT=1`；创建 1 root + 2 generation 形状的 span（属性 ≥10 个、其中一个为 100KB JSON string），经真实 exporter 发到 httptest，解码 protobuf（`proto/otlp`）：全部属性存在、值完整、无截断；生产属性 builder 最大数 ≤64（此处先以固定 fixture 断言 ≥10 且 ≤64）。
-  3. **root 先入队顺序**：用测试 SpanProcessor（记录 `OnEnd` 顺序）替代 BSP 构建一个 runtime 变体（`BuildCandidateRuntimeForTest` 或导出注入点），materialize root+2 generations（先 End root 再 End generation 的顺序由调用方保证——本测试只断言 processor 收到顺序 root, g1, g2）。
+  3. ~~**root 先入队顺序**：用测试 SpanProcessor（记录 `OnEnd` 顺序）替代 BSP 构建一个 runtime 变体（`BuildCandidateRuntimeForTest` 或导出注入点），materialize root+2 generations（先 End root 再 End generation 的顺序由调用方保证——本测试只断言 processor 收到顺序 root, g1, g2）。~~
+     **执行时跳过**：该断言只能证明 SDK 按 `End` 调用顺序回调 `OnEnd`，是 OTel 的行为而非本仓库的契约；决定"先 End root 再 End generation"的是 plan-5b 的 worker，顺序回归随该 worker 一起写（§14.1 recorder 行已列出）。本计划改为在 `otlp_limits_test.go` 断言导出的 protobuf 中 root 无 parent、generation 的 parent 为 root span ID，覆盖父子关系部分。
   4. 极小 queue（QueueSize=16, BatchSize=1）+ 快速 End 200 个 span → `queueDroppedLowerBound() > 0` 且告警函数被调用（注入告警 hook）。
   5. `PublishSnapshot` 失败路径（非法配置）保留旧 binding；成功路径 Version 单调、旧 runtime `Retire` 被调用（注入 retire hook 或观察 `TryAcquire` 返回 false）。
   6. barrier 用例（§14.1 runtime）：worker 已 acquire 尚未 release 时切换配置→旧 runtime 不会被 shutdown（`ShutdownAll` 前置条件断言 in-flight>0 时 15s 预算内跳过其 shutdown 并告警）。

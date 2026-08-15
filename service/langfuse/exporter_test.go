@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,15 +75,45 @@ func recordedSpans(t *testing.T, count int) []sdktrace.ReadOnlySpan {
 	return ended
 }
 
+// warningRecorder collects diagnostics from the test goroutine and from any
+// background drain that reports while the test runs.
+type warningRecorder struct {
+	mu       sync.Mutex
+	messages []string
+}
+
+func (w *warningRecorder) all() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string{}, w.messages...)
+}
+
+func (w *warningRecorder) joined() string { return strings.Join(w.all(), "\n") }
+
+func (w *warningRecorder) count(message string) int {
+	seen := 0
+	for _, recorded := range w.all() {
+		if recorded == message {
+			seen++
+		}
+	}
+	return seen
+}
+
 // captureWarnings redirects the rate limited Langfuse warnings for the duration
 // of a test.
-func captureWarnings(t *testing.T) *[]string {
+func captureWarnings(t *testing.T) *warningRecorder {
 	t.Helper()
-	previous := emitWarning
-	captured := &[]string{}
-	emitWarning = func(message string) { *captured = append(*captured, message) }
-	t.Cleanup(func() { emitWarning = previous })
-	return captured
+	recorder := &warningRecorder{}
+	previous := warningSink.Load()
+	sink := func(message string) {
+		recorder.mu.Lock()
+		recorder.messages = append(recorder.messages, message)
+		recorder.mu.Unlock()
+	}
+	warningSink.Store(&sink)
+	t.Cleanup(func() { warningSink.Store(previous) })
+	return recorder
 }
 
 func newTestExporter(t *testing.T, snapshot Snapshot) *countingExporter {
@@ -174,23 +206,26 @@ func TestErrorHandlerRateLimitsLangfuseErrorsAndForwardsTheRest(t *testing.T) {
 	var forwarded []error
 	handler := newLangfuseErrorHandler(otel.ErrorHandlerFunc(func(err error) { forwarded = append(forwarded, err) }))
 
-	exportErr := langfuseExportError{key: "ingestion_forbidden:9", summary: "langfuse export failed"}
+	// Counting only this summary keeps the assertion independent of retirement
+	// lines other runtimes may emit concurrently.
+	const summary = "langfuse export failed in this test"
+	exportErr := langfuseExportError{key: "ingestion_forbidden:9", summary: summary}
 	handler.Handle(exportErr)
 	handler.Handle(exportErr)
-	assert.Len(t, *warnings, 1, "the same failure must warn at most once per window")
+	assert.Equal(t, 1, warnings.count(summary), "the same failure must warn at most once per window")
 	assert.Empty(t, forwarded)
 
 	handler.mu.Lock()
 	handler.lastWarned[exportErr.key] = time.Now().Add(-alertInterval - time.Second)
 	handler.mu.Unlock()
 	handler.Handle(exportErr)
-	assert.Len(t, *warnings, 2, "a new window must warn again")
+	assert.Equal(t, 2, warnings.count(summary), "a new window must warn again")
 
 	unrelated := errors.New("unrelated otel failure")
 	handler.Handle(unrelated)
 	require.Len(t, forwarded, 1, "non Langfuse errors must keep reaching the previous handler")
 	assert.Equal(t, unrelated, forwarded[0])
-	assert.Len(t, *warnings, 2)
+	assert.Equal(t, 2, warnings.count(summary))
 }
 
 func TestForbiddenTransportReplacesSuspendedResponseBody(t *testing.T) {

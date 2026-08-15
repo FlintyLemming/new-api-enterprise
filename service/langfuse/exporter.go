@@ -41,9 +41,17 @@ const (
 	forbiddenBodyStandIn = "ingestion forbidden"
 )
 
-// emitWarning is the sink for every Langfuse diagnostic. Tests replace it to
-// assert rate limiting without reading the process log.
-var emitWarning = common.SysError
+// warningSink receives every Langfuse diagnostic. Retirement drains report from
+// background goroutines, so the indirection is atomic rather than a plain
+// variable a test could swap underneath a running drain.
+var warningSink atomic.Pointer[func(string)]
+
+func init() {
+	sink := func(message string) { common.SysError(message) }
+	warningSink.Store(&sink)
+}
+
+func emitWarning(message string) { (*warningSink.Load())(message) }
 
 // basicAuthHeader builds the Langfuse ingestion credential. The result is a
 // secret: it may only be handed to the exporter options and must never reach a
