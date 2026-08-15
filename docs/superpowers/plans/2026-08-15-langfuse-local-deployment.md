@@ -63,11 +63,14 @@ Expected: `ok`，无 `DATA RACE`。
 
 ```bash
 cd /mnt/extend/Projects/new-api
-go test ./service/langfuse -run TestPackageBoundaries -v
-go list -deps ./service/langfuse | grep -E 'new-api/(service|model|controller|service/langfuseconfig|relay/channel)' && echo VIOLATION || echo OK
+go test ./service/langfuse -run 'Boundar|Import' -v
+go list -deps ./service/langfuse | grep -E 'new-api/(model|controller|service/langfuseconfig|relay/channel)' && echo VIOLATION || echo OK
+go list -deps ./service/langfuse | grep -E 'new-api/service'
 ```
 
-Expected: 测试 PASS；第二条命令输出 `OK`（不得出现 `VIOLATION`）。
+Expected: 边界测试 PASS；第二条输出 `OK`；第三条只输出 `github.com/QuantumNous/new-api/service/langfuse` 自身。
+
+> 注：plan-8 里写的 `-run TestPackageBoundaries` 在本仓库没有对应测试函数，`-run` 空匹配会返回退出码 0 并打印 `PASS`（假绿）；其 grep 模式含 `new-api/(service|...)`，会匹配被测包自身而永远输出 `VIOLATION`。以上是修正后的等价检查。
 
 - [ ] **Step 5: 全量测试与构建**
 
