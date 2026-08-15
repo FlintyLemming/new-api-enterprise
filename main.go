@@ -29,6 +29,7 @@ import (
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/service/langfuse"
 	"github.com/QuantumNous/new-api/service/langfuseconfig"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -235,6 +236,12 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
 	}
+	// Langfuse telemetry drain: 所有 provider 共用同一个 15 秒绝对 deadline，严格大于
+	// 单次 exporter 10 秒 HTTP 超时；必须在 server 关闭后调用，保证请求 goroutine 已结束。
+	// 超时只记录告警，不延长退出预算。
+	langfuseShutdownCtx, langfuseShutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	langfuse.ShutdownAll(langfuseShutdownCtx)
+	langfuseShutdownCancel()
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {
 		model.SaveQuotaDataCache()
