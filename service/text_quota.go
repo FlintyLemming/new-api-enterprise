@@ -17,6 +17,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service/langfuse"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/bytedance/gopkg/util/gopool"
@@ -81,6 +82,54 @@ type textQuotaSummary struct {
 // call), so token count alone is not sufficient to decide.
 func (s *textQuotaSummary) hasBillableUsage() bool {
 	return s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
+}
+
+// checkedCacheWriteTokensTotal is the telemetry counterpart of
+// cacheWriteTokensTotal: it reports the same physical cache-write total but adds
+// the split 5m/1h counts with a checked addition, because a telemetry value
+// object must never carry a wrapped sum. An overflow keeps the general total.
+func checkedCacheWriteTokensTotal(summary textQuotaSummary) int {
+	if summary.CacheCreationTokens5m <= 0 && summary.CacheCreationTokens1h <= 0 {
+		return summary.CacheCreationTokens
+	}
+	if summary.CacheCreationTokens5m > math.MaxInt-summary.CacheCreationTokens1h {
+		return summary.CacheCreationTokens
+	}
+	if split := summary.CacheCreationTokens5m + summary.CacheCreationTokens1h; split > summary.CacheCreationTokens {
+		return split
+	}
+	return summary.CacheCreationTokens
+}
+
+// checkUsageSourcesValid reports whether every raw upstream token count is
+// non-negative. It must run before CacheCreationTokensTotal, which clamps a
+// negative cache-write field to zero and would hide the broken source. The
+// result is telemetry only: billing continues on its existing path either way.
+func checkUsageSourcesValid(usage *dto.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	input := usage.PromptTokensDetails
+	output := usage.CompletionTokenDetails
+	return usage.PromptTokens >= 0 && usage.CompletionTokens >= 0 &&
+		input.CachedTokens >= 0 && input.CachedCreationTokens >= 0 && input.CacheWriteTokens >= 0 &&
+		input.TextTokens >= 0 && input.ImageTokens >= 0 && input.AudioTokens >= 0 &&
+		usage.ClaudeCacheCreation5mTokens >= 0 && usage.ClaudeCacheCreation1hTokens >= 0 &&
+		output.TextTokens >= 0 && output.AudioTokens >= 0 &&
+		output.ImageTokens >= 0 && output.ReasoningTokens >= 0
+}
+
+// normalizeBillingSource resolves what the trace may claim about this charge. An
+// empty source is reported as unknown rather than impersonating a wallet
+// deduction (design §8.4).
+func normalizeBillingSource(relayInfo *relaycommon.RelayInfo, freeModel bool) string {
+	if freeModel {
+		return "free"
+	}
+	if relayInfo != nil && relayInfo.BillingSource != "" {
+		return relayInfo.BillingSource
+	}
+	return "unknown"
 }
 
 func cacheWriteTokensTotal(summary textQuotaSummary) int {
@@ -467,6 +516,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
+	// Telemetry source validation must read the raw billingUsage fields here,
+	// before CacheCreationTokensTotal clamps a negative cache-write count.
+	usageSourcesValid := checkUsageSourcesValid(billingUsage)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, billingUsage)
 
 	var tieredResult *billingexpr.TieredResult
@@ -510,8 +562,47 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
-	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
-		logger.LogError(ctx, "error settling billing: "+err.Error())
+	settleErr := SettleBilling(ctx, relayInfo, summary.Quota)
+	if settleErr != nil {
+		logger.LogError(ctx, "error settling billing: "+settleErr.Error())
+	}
+
+	if recorder := langfuse.FromContext(ctx); recorder != nil {
+		// summary.Quota is final here — tiered billing and every other override
+		// already ran — so quota and the conversion rate are snapshotted at the
+		// same point SettleBilling was called with them.
+		cacheWrite := summary.CacheCreationTokens
+		if summary.InputExcludesCache {
+			// The exclusive branch deducts no cache from input, so the exported
+			// bucket may carry the full physical Claude 5m/1h total.
+			cacheWrite = checkedCacheWriteTokensTotal(summary)
+		}
+		reasoningTokens := 0
+		if billingUsage != nil {
+			reasoningTokens = billingUsage.CompletionTokenDetails.ReasoningTokens
+		}
+		recorder.RecordUsage(langfuse.UsageRecord{
+			Kind:      langfuse.UsageKindText,
+			Available: billingUsage != nil && usageSourcesValid,
+			ModelName: relayInfo.GetUpstreamModelName(),
+			// The folded caliber only; the Recorder never re-derives it from the
+			// usage semantic or the channel declaration.
+			InputExcludesCache:    summary.InputExcludesCache,
+			InputTokens:           summary.PromptTokens,
+			OutputTokens:          summary.CompletionTokens,
+			InputCachedTokens:     summary.CacheTokens,
+			InputCacheWriteTokens: cacheWrite,
+			InputImageTokens:      summary.ImageTokens,
+			InputAudioTokens:      summary.AudioTokens,
+			OutputReasoningTokens: reasoningTokens,
+			Quota:                 summary.Quota,
+			QuotaPerUnit:          common.QuotaPerUnit,
+			BillingSource:         normalizeBillingSource(relayInfo, relayInfo.PriceData.FreeModel),
+			// Closing the billing session is not the same as charging: a request
+			// without billable usage settles successfully and still has no cost.
+			Settled:          settleErr == nil && summary.hasBillableUsage(),
+			SettlementFailed: settleErr != nil,
+		})
 	}
 
 	logModel := summary.ModelName

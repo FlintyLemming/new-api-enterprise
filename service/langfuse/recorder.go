@@ -235,6 +235,23 @@ func (r *Recorder) RecordUsage(rec UsageRecord) {
 	r.active.Usage = &rec
 }
 
+// AttemptUsage returns a copy of the settlement record attributed to one
+// attempt, in the order the attempts crossed the upstream boundary. The
+// settlement call sites live in the root service package, so their regression
+// tests need to read back the snapshot they handed over; the telemetry pipeline
+// itself takes the record off the frozen value objects instead.
+func (r *Recorder) AttemptUsage(index int) (UsageRecord, bool) {
+	if r == nil {
+		return UsageRecord{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if index < 0 || index >= len(r.attempts) || r.attempts[index].Usage == nil {
+		return UsageRecord{}, false
+	}
+	return *r.attempts[index].Usage, true
+}
+
 // FromContext returns the Langfuse Recorder of the current request. A missing
 // key, a mismatched type and a typed nil all yield nil, so every settlement
 // function and attempt hook can call it without its own assertion.
