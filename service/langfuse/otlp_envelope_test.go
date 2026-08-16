@@ -39,17 +39,23 @@ type envelopeConfig struct {
 	maxResponseBytes int
 	queueSize        int
 	batchSize        int
+	// inFlightBytes has to be stated because the response maximum now exceeds
+	// the shipped capture budget default on its own.
+	inFlightBytes int
 }
 
 var envelopeConfigs = []envelopeConfig{
-	{name: "content_max_1MiB", maxContentBytes: 1024 * 1024, maxResponseBytes: 64 * 1024, queueSize: 16, batchSize: 1},
-	{name: "response_max_8MiB", maxContentBytes: 4 * 1024, maxResponseBytes: 8 * 1024 * 1024, queueSize: 16, batchSize: 1},
-	{name: "shipping_default", maxContentBytes: 65536, maxResponseBytes: 524288, queueSize: 64, batchSize: 16},
+	{name: "content_max_4MiB", maxContentBytes: 4 * 1024 * 1024, maxResponseBytes: 64 * 1024, queueSize: 16, batchSize: 1, inFlightBytes: 536870912},
+	{name: "response_max_64MiB", maxContentBytes: 4 * 1024, maxResponseBytes: 64 * 1024 * 1024, queueSize: 16, batchSize: 1, inFlightBytes: 536870912},
+	{name: "shipping_default", maxContentBytes: 65536, maxResponseBytes: 524288, queueSize: 64, batchSize: 16, inFlightBytes: 536870912},
 }
 
-// queuedSpanBytes is the conservative single span envelope design §9.1 makes
-// the configuration validator enforce.
-func (c envelopeConfig) queuedSpanBytes() int { return 2*c.maxContentBytes + c.maxResponseBytes }
+// queuedSpanBytes is what one queued span body can reach: a span carries one
+// input plus one output, both already reduced to max_content_bytes. The
+// response buffer holds framed SSE that the worker aggregates and drops before
+// a span exists, so it is memory the request occupies and never contributes
+// here — which is why response_max_64MiB produces a tiny span.
+func (c envelopeConfig) queuedSpanBytes() int { return 2 * c.maxContentBytes }
 
 // escapingMaterial is a worst case body for the JSON string escaping the
 // attribute budget is measured in: incompressible bytes, characters that all
@@ -209,6 +215,7 @@ func envelopeRuntime(t *testing.T, config envelopeConfig, host string) (*Telemet
 	setting.Host = host
 	setting.MaxContentBytes = config.maxContentBytes
 	setting.MaxResponseBytes = config.maxResponseBytes
+	setting.MaxInFlightCaptureBytes = config.inFlightBytes
 	setting.QueueSize = config.queueSize
 	setting.BatchSize = config.batchSize
 	// A one hour batch timeout keeps every span in the queue until the explicit
@@ -277,7 +284,7 @@ func TestOtlpEnvelopeMaxRootSpanWireSize(t *testing.T) {
 		for _, material := range escapingMaterials {
 			t.Run(config.name+"/"+material.name, func(t *testing.T) {
 				assert.LessOrEqual(t, config.queuedSpanBytes(), 9_000_000,
-					"2*max_content_bytes+max_response_bytes is the configured single span envelope")
+					"2*max_content_bytes is the configured single span envelope")
 
 				collector := &envelopeCollector{t: t}
 				server := httptest.NewServer(http.HandlerFunc(collector.handler))
