@@ -13,7 +13,7 @@
 
 ## 1. 变更内容
 
-- `/home/flintylemming/appdata/8850-new-api` 的 `new-api` 容器从上游镜像 `calciumion/new-api:latest`（revision `0ab02020`，2026-08-01 构建）切换到本机构建的 fork 镜像。首次上线为 `new-api:langfuse-750452c0`（image `9c8570cf79f0`，217 MB，代码 revision `750452c0`，领先上游 73 个 commit）；当晚因审计需求抬高正文上限后重建为 `new-api:langfuse-02dc4189`（image `07d309327292`，217 MB）；次日修复流式响应缓冲区后重建为 **`new-api:langfuse-0b05ce5c`**（image `fd872dd9091a`），这是当前运行的镜像，详见 §9。
+- `/home/flintylemming/appdata/8850-new-api` 的 `new-api` 容器从上游镜像 `calciumion/new-api:latest`（revision `0ab02020`，2026-08-01 构建）切换到本机构建的 fork 镜像。首次上线为 `new-api:langfuse-750452c0`（image `9c8570cf79f0`，217 MB，代码 revision `750452c0`，领先上游 73 个 commit）；当晚因审计需求抬高正文上限后重建为 `new-api:langfuse-02dc4189`（image `07d309327292`，217 MB）；次日修复流式响应缓冲区后重建为 `new-api:langfuse-0b05ce5c`（image `fd872dd9091a`）；当天并入远端分支后再次重建为 **`new-api:langfuse-b8120389`**（image `6f52df4326b4`），这是当前运行的镜像，详见 §9。
 - 新建专用 Langfuse 实例 `/home/flintylemming/appdata/8858-langfuse-newapi`（Langfuse 4.2.0，六服务，仅发布 `8858->3000`），org `newapi` / project `new-api-8850`。既有的 `18081-langfuse`（服务 agentgateway 项目）未做任何改动。
 - `8850-new-api/compose.yaml` 改动两处：`image` + `pull_policy: never`；`new-api` 服务显式声明 `networks: [default, langfuse]`，顶层新增 external 网络 `8858-langfuse-newapi_default`。
 - Langfuse 集成经 root 专用接口 `PUT /api/option/langfuse` 启用：`host=http://langfuse-web:3000`、`environment=production`、`send_content=true`。
@@ -57,7 +57,7 @@
 三级，按影响面从小到大：
 
 1. **关开关**：`PUT /api/option/langfuse` 置 `enabled=false`（`secret_key` 传空字符串即保留已存密钥）。exporter 停止，其余功能不受影响。
-2. **回上一版 fork 镜像**（只撤 §9 的流式缓冲区改动）：`compose.yaml` 改回 `image: new-api:langfuse-02dc4189`（`07d309327292`，仍在本地），`docker compose up -d --no-deps new-api`，再把两个 option 回写成 `max_response_bytes=524288`、`max_in_flight_capture_bytes=8589934592`（旧值存于 `backups/langfuse-pre-streambuffer-20260816T113133Z.txt`）。**顺序不能反**：旧镜像的校验器会拒绝 64 MiB 的 `max_response_bytes`。
+2. **回上一版 fork 镜像**（只撤 §9 的流式缓冲区改动）：`compose.yaml` 改回 `image: new-api:langfuse-02dc4189`（`07d309327292`，仍在本地），`docker compose up -d --no-deps new-api`，再把两个 option 回写成 `max_response_bytes=524288`、`max_in_flight_capture_bytes=8589934592`（旧值存于 `backups/langfuse-pre-streambuffer-20260816T113133Z.txt`）。**顺序不能反**：旧镜像的校验器会拒绝 64 MiB 的 `max_response_bytes`。中间版本 `new-api:langfuse-0b05ce5c`（`fd872dd9091a`）也还在本地，但它缺远端的 attempt 分类修复，除非专门要隔离 §9.6 的合并，否则不要回到它。
 3. **回上游镜像**：`compose.yaml` 改回 `image: calciumion/new-api:latest`，去掉 `pull_policy` 与两处 `networks`，`docker compose up -d --no-deps new-api`。`midjourneys` 的两个多余列被上游忽略，**不需要恢复数据库**。
    - 上游镜像锚点：`backups/rollback-anchor-20260815T144457Z.txt`，`calciumion/new-api@sha256:bacbbfbed64b4579213316e0ed78415985223bb20c47fbc24572dd7be5aa1695`；已额外打保险 tag `calciumion/new-api:pre-langfuse-20260815`，防止将来 `pull latest` 后旧镜像变 dangling 被 prune。
 4. **恢复库**：`backups/newapi-pre-langfuse-20260815T144457Z.dump`（331 MiB，custom 格式；已用 `pg_restore -l` 与全量 `-f /dev/null` 解压校验，逐表对账 `users` 354 / `tokens` 475 / `channels` 6 / `options` 37 / `logs` 7,633,444 与线上一致）。仅在数据异常时使用。
@@ -191,7 +191,7 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 
 ### 9.4 改动与上线
 
-代码 commit `0b05ce5c`，镜像 `new-api:langfuse-0b05ce5c`（`fd872dd9091a`）。
+代码 commit `0b05ce5c`（rebase 后为 `84db94f6`），首次上线镜像 `new-api:langfuse-0b05ce5c`（`fd872dd9091a`）。当天并入远端分支后重新构建部署，见 §9.6。
 
 - `setting/langfuse_setting/config.go`：拆开两个预算的校验（span 包络与队列规划用 `2×content`，预留只受 `in_flight` 约束）；`maxResponseBytes` 上限 8 MiB → 64 MiB；包络检查改为编译期声明（理由见 §3）。
 - 前端 `langfuse-schema.ts` 镜像同步；`langfuse-capacity.ts` 新增 `spanBodyBytes`，队列规划从 reservation 切到 span body（否则 64 MiB 缓冲会让"导出中的 span 正文"虚报到 9 GiB）；UI 输入框 `max` 属性与 7 个语种的三条文案同步。
@@ -205,3 +205,19 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - **root span 与 generation span 携带的字段不同**：`usage_details` / `cost_details` 只在 generation span 上，root span 恒为空。按 root span 查 usage 会得到"全空"的假象，误判成回归。区分靠 `has(metadata_names,'attributes.langfuse.internal.as_root')`。
 - **span 命名**：root 是 `relayFormat + " " + originModel`（如 `openai deepseek-v4-flash-0731`），generation 是渠道名 + 模型（如 `[H200] Deepseek V4 Flash deepseek-v4-flash-0731`）。别按名字前缀猜哪个是 root。
 - **测试数据清理**：§9.3 的 5 条合成 trace 写在 `environment=size-test`（与 `production` 隔离，不污染审计集），验证后用 `DELETE /api/public/traces`（Basic 认证，body `{"traceIds":[...]}`）删除，实测该接口在 v4 仍可用，返回 `Traces deleted successfully`；删后 `environment=size-test` 剩 0 行，production 11,708 行未受影响。
+
+### 9.6 并入远端分支后重新部署
+
+§9.4 那次上线的镜像是从一条**落后于远端**的本地分支构建的。推送时才发现 `feature/langfuse-tracing` 已经分叉：本机自 `750452c0` 推送后就没再 fetch，而在这之后 7.5 小时（08-15 07:05–09:45 UTC）另一个环境往同一分支推了 4 个提交。两条线都从 `750452c0` 出发，互不知情。
+
+**运维后果**：`new-api:langfuse-0b05ce5c` 缺 `7a175d14 fix(langfuse): classify an attempt by its error, not by the provider's code`——一个 `service/langfuse` 的真实修复。所以那个镜像只在生产上跑了约 4 小时就被替换。
+
+整合方式是 rebase 到远端之上（9 个提交一次都没推过，重写无风险），冲突只有一处：双方各自新建了 `docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`，内容是两份不同的报告。本机那份改名为 `2026-08-15-langfuse-8850-traffic-acceptance.md`，远端那份保持原路径。两份报告与两份台账现在互相交叉引用，说明各自验的是什么。
+
+另外修了一处 git 看不见的破坏：远端的 `service/langfuse/otlp_envelope_test.go` 里 `queuedSpanBytes()` 写死 `2*content+response`，正是本次删掉的混淆模型；它那张"per-field 边界"表也已过期两轮（content 写 1 MiB、response 写 8 MiB）。改成 `2*content` 并把两行边界调到真实上限后，记录到的最大 span protobuf 从约 2 MB 变成 **8,389,635 B**，仍在 9,000,000 包络内——旧表把入口要承受的尺寸低估了 4 倍。代价是该包测试从约 9s 变成约 36s。
+
+**重新部署**：镜像 `new-api:langfuse-b8120389`（`6f52df4326b4`），15:38:03 UTC 启动，约 1 分钟 healthy。
+
+- **配置无需重下**：两个 option 存在库里，新校验器照常接受，重启后回读 `max_response_bytes=67108864`、`max_in_flight_capture_bytes=34359738368` 均在位，`secret_key_configured=true`。
+- **本次重启零丢失**：窗口内 3 个请求（15:37:06 / 15:37:08 / 15:38:08）全部有完整的 root + generation 双 span。与 §9.4 那次丢 1 条的差别在于这 3 条都是短的非流式请求，能在进程退出前跑完并 drain 完；§8.1 那条限制本身没有改变。
+- 重启后至 15:47 UTC 的请求 100% 有 trace。
