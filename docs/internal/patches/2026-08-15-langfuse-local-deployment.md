@@ -1,13 +1,13 @@
 # 8850 部署切换到 fork 构建并启用 Langfuse
 
-日期：2026-08-15
+日期：2026-08-15（2026-08-16 追加 §9：生产对账与流式截断修复）
 执行计划：`docs/superpowers/plans/2026-08-15-langfuse-local-deployment.md`
 设计文档：`docs/superpowers/designs/2026-08-15-langfuse-local-deployment-design.md`
 验收报告：`docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`
 
 ## 1. 变更内容
 
-- `/home/flintylemming/appdata/8850-new-api` 的 `new-api` 容器从上游镜像 `calciumion/new-api:latest`（revision `0ab02020`，2026-08-01 构建）切换到本机构建的 fork 镜像。首次上线为 `new-api:langfuse-750452c0`（image `9c8570cf79f0`，217 MB，代码 revision `750452c0`，领先上游 73 个 commit）；当晚因审计需求抬高正文上限后重建为 **`new-api:langfuse-02dc4189`**（image `07d309327292`，217 MB），这是当前运行的镜像。
+- `/home/flintylemming/appdata/8850-new-api` 的 `new-api` 容器从上游镜像 `calciumion/new-api:latest`（revision `0ab02020`，2026-08-01 构建）切换到本机构建的 fork 镜像。首次上线为 `new-api:langfuse-750452c0`（image `9c8570cf79f0`，217 MB，代码 revision `750452c0`，领先上游 73 个 commit）；当晚因审计需求抬高正文上限后重建为 `new-api:langfuse-02dc4189`（image `07d309327292`，217 MB）；次日修复流式响应缓冲区后重建为 **`new-api:langfuse-0b05ce5c`**（image `fd872dd9091a`），这是当前运行的镜像，详见 §9。
 - 新建专用 Langfuse 实例 `/home/flintylemming/appdata/8858-langfuse-newapi`（Langfuse 4.2.0，六服务，仅发布 `8858->3000`），org `newapi` / project `new-api-8850`。既有的 `18081-langfuse`（服务 agentgateway 项目）未做任何改动。
 - `8850-new-api/compose.yaml` 改动两处：`image` + `pull_policy: never`；`new-api` 服务显式声明 `networks: [default, langfuse]`，顶层新增 external 网络 `8858-langfuse-newapi_default`。
 - Langfuse 集成经 root 专用接口 `PUT /api/option/langfuse` 启用：`host=http://langfuse-web:3000`、`environment=production`、`send_content=true`。
@@ -24,18 +24,25 @@
 
 ## 3. 容量规划
 
-**审计档（当前生效）**：`max_content_bytes=4 MiB`、`max_response_bytes=512 KiB`、`max_in_flight_capture_bytes=8 GiB`、`queue_size=128`、`batch_size=4`、`sample_rate=1.0`。
+**审计档（2026-08-16 起生效）**：`max_content_bytes=4 MiB`、`max_response_bytes=64 MiB`、`max_in_flight_capture_bytes=32 GiB`、`queue_size=128`、`batch_size=4`、`sample_rate=1.0`。（08-15 的初版是 response=512 KiB、in_flight=8 GiB，为什么改见 §9。）
 
-| 项 | 值 | 约束上限 |
-| --- | --- | --- |
-| 单次捕获预留 `2×content+response` | 8,912,896 B（8.50 MiB） | 9,000,000（单 span 包络） |
-| 并发捕获槽 `in_flight/预留` | 963 | 峰值并发实测约 34（p90 口径约 72） |
-| 正文规划 `(queue+3×batch)×预留` | 1.16 GiB | 2 GiB（`queueBodyPlanningLimit`） |
-| 最坏导出批体 `batch×预留` | 34 MiB | 实测 Langfuse OTLP 端点 60 MB 仍返回 200 |
+**两个预算是不同的量，不要再合并**：
 
-预算耗尽时该请求降级为 metadata-only（`ReserveCapture` 返回 nil），不重试、不影响 relay；963 个槽对峰值并发有 13 倍余量，正常不会触发。
+- **单 span 正文 = `2×content`**，因为一个 span 只带一份 input 加一份 output，两者都已被 `prepareContent` 压到 `max_content_bytes`。
+- **单次捕获预留 = `2×content + response`**，是这个请求占住的内存。`response` 缓冲的是带帧的原始 SSE，worker 聚合成 output 后就丢弃，**从来不进 span**。
 
-**为什么 `queueBodyPlanningLimit` 只到 2 GiB**：理论最大规划量 `(256+3×32)×9,000,000 = 2.95 GiB`。设成 3 GiB 以上这条校验就永远触发不了，变成死规则；2 GiB 既放行审计档配置，又保留实际约束力。
+| 项 | 表达式 | 值 | 约束上限 |
+| --- | --- | --- | --- |
+| 单 span 正文 | `2×content` | 8,388,608 B（8.00 MiB） | 9,000,000（`LANGFUSE_OTEL_MAX_SPAN_BYTES` 默认值下的余量） |
+| 单次捕获预留 | `2×content+response` | 75,497,472 B（72 MiB） | 仅受 `in_flight` 约束 |
+| 并发捕获槽 | `in_flight/预留` | 455 | 峰值并发实测约 34（p90 口径约 72） |
+| 正文规划 | `(queue+3×batch)×span正文` | 1.09 GiB | 2 GiB（`queueBodyPlanningLimit`） |
+
+预算耗尽时该请求降级为 metadata-only（`ReserveCapture` 返回 nil），不重试、不影响 relay；455 个槽对 p90 并发有 6 倍余量，正常不会触发。最坏实际内存 `455×72 MiB ≈ 32 GB`，宿主机 2 TB。
+
+**为什么 `queueBodyPlanningLimit` 只到 2 GiB**：理论最大规划量 `(256+3×32)×(2×4 MiB) = 2.75 GiB`。设成 2.75 GiB 以上这条校验就永远触发不了，变成死规则；2 GiB 既放行审计档配置，又保留实际约束力。
+
+**单 span 包络为什么没有运行时检查**：`max_content_bytes` 的字段上限（4 MiB）本身就保证了 `2×content ≤ 9,000,000`，等 `Validate` 跑到包络那一步，该条件已恒成立，写成运行时检查就是死代码。改为编译期声明 `const _ = uint(maxQueuedSpanBytesLimit - 2*maxContentBytes)`——将来谁抬 `maxContentBytes` 会直接编译失败。
 
 **字节/token 实测**：4.49 B/token（Phase A 四档实测，见 §7）。因此 4 MiB ≈ 93 万 token，覆盖 7 天真实流量的最大值 71.7 万 token；上游模型 `deepseek-v4-flash-0731` 的 1M 上下文硬限会先于捕获上限拒绝请求。
 
@@ -44,9 +51,10 @@
 三级，按影响面从小到大：
 
 1. **关开关**：`PUT /api/option/langfuse` 置 `enabled=false`（`secret_key` 传空字符串即保留已存密钥）。exporter 停止，其余功能不受影响。
-2. **回镜像**：`compose.yaml` 改回 `image: calciumion/new-api:latest`，去掉 `pull_policy` 与两处 `networks`，`docker compose up -d --no-deps new-api`。`midjourneys` 的两个多余列被上游忽略，**不需要恢复数据库**。
+2. **回上一版 fork 镜像**（只撤 §9 的流式缓冲区改动）：`compose.yaml` 改回 `image: new-api:langfuse-02dc4189`（`07d309327292`，仍在本地），`docker compose up -d --no-deps new-api`，再把两个 option 回写成 `max_response_bytes=524288`、`max_in_flight_capture_bytes=8589934592`（旧值存于 `backups/langfuse-pre-streambuffer-20260816T113133Z.txt`）。**顺序不能反**：旧镜像的校验器会拒绝 64 MiB 的 `max_response_bytes`。
+3. **回上游镜像**：`compose.yaml` 改回 `image: calciumion/new-api:latest`，去掉 `pull_policy` 与两处 `networks`，`docker compose up -d --no-deps new-api`。`midjourneys` 的两个多余列被上游忽略，**不需要恢复数据库**。
    - 上游镜像锚点：`backups/rollback-anchor-20260815T144457Z.txt`，`calciumion/new-api@sha256:bacbbfbed64b4579213316e0ed78415985223bb20c47fbc24572dd7be5aa1695`；已额外打保险 tag `calciumion/new-api:pre-langfuse-20260815`，防止将来 `pull latest` 后旧镜像变 dangling 被 prune。
-3. **恢复库**：`backups/newapi-pre-langfuse-20260815T144457Z.dump`（331 MiB，custom 格式；已用 `pg_restore -l` 与全量 `-f /dev/null` 解压校验，逐表对账 `users` 354 / `tokens` 475 / `channels` 6 / `options` 37 / `logs` 7,633,444 与线上一致）。仅在数据异常时使用。
+4. **恢复库**：`backups/newapi-pre-langfuse-20260815T144457Z.dump`（331 MiB，custom 格式；已用 `pg_restore -l` 与全量 `-f /dev/null` 解压校验，逐表对账 `users` 354 / `tokens` 475 / `channels` 6 / `options` 37 / `logs` 7,633,444 与线上一致）。仅在数据异常时使用。
 
 Langfuse 新栈可独立 `docker compose down` 而不影响 new-api：实测停机 50 秒期间 8/8 relay 请求正常、延迟与基线重叠、扣费三方吻合，导出错误只有一行聚合日志；窗口内 7 个请求有 4 个 trace 恢复后补投成功、3 个 trace（6 span）按设计丢弃。
 
@@ -110,7 +118,84 @@ Langfuse 新栈可独立 `docker compose down` 而不影响 new-api：实测停�
 
 参数已经调到"正常运行不漏"，但有一类缺口不是调参能消除的，需要知悉：
 
-1. **Langfuse 不可用期间的 span 会丢**。导出器是内存队列 + 有界重试，设计上"绝不阻塞 relay"，因此没有本地持久化缓冲。实测停机 50 秒，窗口内 7 个请求有 3 个 trace（6 span）丢弃。若审计要求"零丢失"，需要在 new-api 与 Langfuse 之间加一层带磁盘持久化队列的 OpenTelemetry Collector（`otlpreceiver` 支持自定义 `traces_url_path`，可原样接住 `/api/public/otel/v1/traces`），由它负责断点续传。
-2. **超过 4 MiB 的请求仍会截断**。7 天真实流量中无此类请求（最大 71.7 万 token ≈ 3.2 MB），但这是硬上限：单 span 包络 9,000,000 B 是 Langfuse 9.5 MB 告警线换来的余量，继续抬需要重新评估。
+1. **Langfuse 不可用期间、以及 new-api 自身重启时，在途的 span 会丢**。导出器是内存队列 + 有界重试，设计上"绝不阻塞 relay"，因此没有本地持久化缓冲。实测 Langfuse 停机 50 秒，窗口内 7 个请求有 3 个 trace（6 span）丢弃；08-16 换镜像重启也丢了 1 条（`202608161130528060176708268d9d69IJM8JRD`，重启瞬间正在进行的流式请求，new-api 日志有、Langfuse 无）。**每次换镜像都要按这个量级预期。** 若审计要求"零丢失"，需要在 new-api 与 Langfuse 之间加一层带磁盘持久化队列的 OpenTelemetry Collector（`otlpreceiver` 支持自定义 `traces_url_path`，可原样接住 `/api/public/otel/v1/traces`），由它负责断点续传。
+2. **超过 4 MiB 的请求正文仍会截断**（指输入侧）。7 天真实流量中无此类请求（最大 71.7 万 token ≈ 3.2 MB）。继续抬需要同时抬 `LANGFUSE_OTEL_MAX_SPAN_BYTES`——08-16 实测该值只触发告警不拦截（见 §9），所以不是硬墙，但会让一个原版 Langfuse 开始记 warn 日志。
+   - ~~流式响应超过 512 KiB 原始 SSE 会丢最终答案~~ —— 08-16 已修复，见 §9。
 3. **`/v1/embeddings` 与 `/v1/rerank` 不产生 trace**（7 天各 86 / 85 条，占 0.14%）。`formatSupported` 只放行 OpenAI ChatCompletions、Claude Messages、OpenAI Responses、Gemini 四类。若审计范围包含嵌入/重排的输入文本，需要扩展该白名单。
 4. §5 里那两条"真实流量下从未执行过"的代码路径（多 attempt 归属、Anthropic cache/音频分桶）依然只有单测保障。
+
+## 9. 2026-08-16：生产对账与流式截断修复
+
+上线满一天后按审计口径做了一次全量对账，发现一个 §7 的压测没能暴露的缺口，当天修复并重新上线。
+
+### 9.1 对账方法与结果
+
+`DeriveTraceID`（`service/langfuse/idgen.go:19`）是确定性的 `SHA256(request_id)[:16]`，`logs` 表又有 `request_id` 列，所以两库可以逐条精确对账，不靠时间窗猜：
+
+```sql
+-- Langfuse 侧（ClickHouse，events_only 模式下读 events_full）
+SELECT metadata_values[indexOf(metadata_names,'request_id')]
+FROM events_full WHERE has(metadata_names,'attributes.langfuse.internal.as_root')
+-- new-api 侧
+SELECT request_id FROM newapi.logs WHERE type IN (2,5)
+-- 推导关系可直接在 ClickHouse 里验：
+--   trace_id = lower(hex(substring(SHA256(request_id),1,16)))
+```
+
+配置定型（08-15 16:30 UTC）之后到 08-16 11:00 UTC，**117 个连续 10 分钟桶全部 100.0% 覆盖**，5,319 条请求里只差 6 条 embedding/rerank（§8.3 的已知设计限制）。反向也干净：Langfuse 里没有任何一条 trace 在 new-api 日志里找不到对应。
+
+16:30 之前的 296 条未采集是上线过程本身造成的——15:14 前尚未启用，15:35–16:25 处于 §1 提到的 `sample_rate=0.1` 试验期，覆盖率在那两段分别是 0% 和 5%–15%，与采样率吻合。
+
+### 9.2 发现的缺口：流式响应丢的正是最终答案
+
+稳定窗口内 5,269 条 trace 有 **43 条 `content_truncated=true`**，全部 `is_stream=true`。其中 **39 条的 `content` 字段完全为空**——不是"答案被截了一截"，是**一个字都没有**：
+
+| 模型 | 条数 | `content` 为空 | reasoning 存了 | content 存了 |
+| --- | --- | --- | --- | --- |
+| llm-lite | 31 | 30 | 231,648 B | **365 B** |
+| deepseek-v4-flash-0731 | 11 | 8 | 219,671 B | 36,541 B |
+| llm-prime | 1 | 1 | 26,092 B | 0 B |
+
+对照组（未截断的流式）里 `content` 为空的 1,012 条中有 988 条带 `tool_calls`，属正常；这 42 条截断的里连 `tool_calls` 都没有。
+
+**根因是两层：**
+
+1. `CaptureWriter` 缓冲的是**带帧的原始 SSE 字节**，聚合是流结束后在这个缓冲区上跑的。实测框架开销约 **67 原始字节 / 输出字符**（每 token 一帧，每帧一整个 chunk JSON 信封），所以 512 KiB 只换回约 7,800 字符正文。触发阈值约 2,400 completion token（观测最小值 2,439）。
+2. **reasoning 先于 content 流出**，预算被推理过程吃光时，答案的 delta 一个都还没到。这就是为什么丢的恰恰是最想留的那部分。
+
+`max_response_bytes` 当时被卡在 512 KiB 不是偶然：`Validate` 把**单 span 包络**和**单请求内存预留**当成同一个表达式 `2×content+response` 校验，content 一到 4 MiB，包络 9,000,000 就只剩 611 KiB 留给缓冲区。但原始 SSE 字节被 worker 聚合成 output 后就丢弃了，聚合结果由 `max_content_bytes` 约束——**那些字节从来没进过 span**。把内存量算进了 span 包络，这是这个缺口的直接来源。
+
+### 9.3 修复前对 Langfuse 上限做的实测
+
+抬上限之前先验证不违背 Langfuse 的设计。三层证据：
+
+- **官方文档**：[API limits](https://langfuse.com/faq/all/api-limits) 自托管写明 "No hard limits"（Cloud 是 5MB/请求），对 observation 正文大小**零建议、零劝阻**；[Scaling](https://langfuse.com/self-hosting/configuration/scaling) 唯一提到大正文的地方在 "Increasing Disk Usage"，把它当**容量与保留策略问题**处理，给的是 retention policy / blob 生命周期 / ClickHouse TTL。
+- **代码演进方向**：读侧上限 v3 是写死的 `PAYLOAD_SIZE_LIMIT = 4e6`，本部署跑的 4.2.0 已换成 env `LANGFUSE_API_TRACE_OBSERVATIONS_SIZE_LIMIT_BYTES`，**默认 `8e7` = 80 MB**。写侧 `LANGFUSE_OTEL_MAX_SPAN_BYTES` 默认 `95e5` = 9,500,000，schema 是 `.positive()` 无上限。
+- **本机实测**（合成 OTLP span，正文尾部埋标记逐条校验，测完已按 §9.5 清除）：
+
+  | 正文 | 落库字节 | 尾部标记 | Langfuse 反应 |
+  | --- | --- | --- | --- |
+  | 1 MB / 8 MB / 9.4 MB | 完整 | ✓ | 无 |
+  | 10 MB | 10,485,756 | ✓ | `warn "OTEL oversized span detected"` |
+  | 20 MB | 20,971,516 | ✓ | 同上 + web `warn "OTEL request body exceeds 16MB"` |
+
+  **超过 `LANGFUSE_OTEL_MAX_SPAN_BYTES` 只是告警，不丢弃、不截断。** 那个 9,500,000 是可调阈值，不是协议常量——我们把它固化成了自己的硬上限。
+
+- **UI 可读性**（无头浏览器实测）：三条大 trace 加载 2.4–2.9 s、堆内存 96–134 MB、无崩溃。Langfuse 对大字符串有**一等公民的处理**：页面显示 `Large string — 4.2M characters, truncated to keep the tab responsive` 加一个 **Download full value** 按钮。点下载实测拿到真实 trace 的 4,194,282 B（141 ms）与 20 MB 合成 trace 的 20,971,516 B（346 ms），尾部标记完好。**它不是勉强容忍大正文，是专门为大正文建了预览 + 完整下载的路径。**
+
+### 9.4 改动与上线
+
+代码 commit `0b05ce5c`，镜像 `new-api:langfuse-0b05ce5c`（`fd872dd9091a`）。
+
+- `setting/langfuse_setting/config.go`：拆开两个预算的校验（span 包络与队列规划用 `2×content`，预留只受 `in_flight` 约束）；`maxResponseBytes` 上限 8 MiB → 64 MiB；包络检查改为编译期声明（理由见 §3）。
+- 前端 `langfuse-schema.ts` 镜像同步；`langfuse-capacity.ts` 新增 `spanBodyBytes`，队列规划从 reservation 切到 span body（否则 64 MiB 缓冲会让"导出中的 span 正文"虚报到 9 GiB）；UI 输入框 `max` 属性与 7 个语种的三条文案同步。
+- 上线：`docker compose up -d --no-deps new-api`（11:33:13 UTC），约 1 分钟 healthy；`PUT /api/option/langfuse` 把 `max_response_bytes` 设为 67108864、`max_in_flight_capture_bytes` 设为 34359738368，回读确认；`langfuse runtime version 1 retired, drain complete: materialized=4 exported=4 failed=0 queue_dropped=0`。
+- 重启代价：丢 1 条在途 trace，已记入 §8.1。重启后至 13:40 UTC 的 **265 条请求 100% 有 trace**。
+
+**上线后的验证仍不完整**：低谷期没有等到超过旧阈值（约 2,400 token）的流式响应。已观测到的最大值是一条 1,499 token 的流式 deepseek（`content` 4,940 B + reasoning 1,022 B，`content_truncated=false`）和一条 4,732 token 的**非流式** llm-lite（`content` 8,280 B + reasoning 7,682 B，完整）——两条都不经过出问题的那条路径。**要在高峰期（16:40–02:00 UTC）复核一次**：查 `content_truncated=true` 应恒为 0，且 completion_tokens > 3,000 的流式请求 `content` 非空。
+
+### 9.5 对账中踩到的坑
+
+- **root span 与 generation span 携带的字段不同**：`usage_details` / `cost_details` 只在 generation span 上，root span 恒为空。按 root span 查 usage 会得到"全空"的假象，误判成回归。区分靠 `has(metadata_names,'attributes.langfuse.internal.as_root')`。
+- **span 命名**：root 是 `relayFormat + " " + originModel`（如 `openai deepseek-v4-flash-0731`），generation 是渠道名 + 模型（如 `[H200] Deepseek V4 Flash deepseek-v4-flash-0731`）。别按名字前缀猜哪个是 root。
+- **测试数据清理**：§9.3 的 5 条合成 trace 写在 `environment=size-test`（与 `production` 隔离，不污染审计集），验证后用 `DELETE /api/public/traces`（Basic 认证，body `{"traceIds":[...]}`）删除，实测该接口在 v4 仍可用，返回 `Traces deleted successfully`；删后 `environment=size-test` 剩 0 行，production 11,708 行未受影响。
