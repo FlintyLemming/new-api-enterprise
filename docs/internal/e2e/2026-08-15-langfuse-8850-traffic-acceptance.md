@@ -1,4 +1,9 @@
-# Langfuse 真实流量验收报告（Task 7）
+# Langfuse 真实流量验收报告（8850 部署 / Task 7）
+
+> 本分支上有两份 Langfuse 验收报告，验的不是同一件事，别混：
+>
+> - **本文**：8850 生产部署的**真实流量**验收，Langfuse 4.2.0，plan `2026-08-15-langfuse-local-deployment` Task 7。关心的是这套部署上线后跑真实用户流量的表现。
+> - `2026-08-15-langfuse-e2e-report.md`：**代码级 E2E**，Langfuse 4.6.0 + nginx base path 的专用验证环境，plan-8 Task 3，13/13 用例组通过。关心的是特性本身的正确性。
 
 - **执行时间**：2026-08-15 15:14 – 15:34 UTC
 - **被测系统**：new-api（容器 `new-api`，镜像 `new-api:langfuse-750452c0`，端口 8850，`StartedAt=2026-08-15T15:09:25Z`，`RestartCount=0`）

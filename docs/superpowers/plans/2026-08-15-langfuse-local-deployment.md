@@ -583,7 +583,7 @@ Expected: 没有反复出现的 `403`/`connection refused`/`forbidden` 之类导
 ### Task 7: 真实流量验收
 
 **Files:**
-- Create: `/mnt/extend/Projects/new-api/docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`
+- Create: `/mnt/extend/Projects/new-api/docs/internal/e2e/2026-08-15-langfuse-8850-traffic-acceptance.md`
 
 **Interfaces:**
 - Consumes: Task 6 的启用态
@@ -637,11 +637,11 @@ Expected: `new-api` 内存稳定（全采样下的规划常驻约 552 MiB 增量
 
 - [ ] **Step 7: 写报告并提交**
 
-创建 `docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`，逐条记录 Step 1–6 的：输入形状（脱敏）、trace/observation ID、观察结果、结论；未覆盖项写明原因。**报告中不得出现正文、凭证、session 原值。**
+创建 `docs/internal/e2e/2026-08-15-langfuse-8850-traffic-acceptance.md`，逐条记录 Step 1–6 的：输入形状（脱敏）、trace/observation ID、观察结果、结论；未覆盖项写明原因。**报告中不得出现正文、凭证、session 原值。**
 
 ```bash
 cd /mnt/extend/Projects/new-api
-git add docs/internal/e2e/2026-08-15-langfuse-e2e-report.md
+git add docs/internal/e2e/2026-08-15-langfuse-8850-traffic-acceptance.md
 git -c user.name=Claude -c user.email=noreply@anthropic.com commit -m "docs(langfuse): real langfuse E2E verification report
 
 Co-Authored-By: Claude <noreply@anthropic.com>"

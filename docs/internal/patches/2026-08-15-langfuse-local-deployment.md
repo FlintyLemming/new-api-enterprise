@@ -3,7 +3,13 @@
 日期：2026-08-15（2026-08-16 追加 §9：生产对账与流式截断修复）
 执行计划：`docs/superpowers/plans/2026-08-15-langfuse-local-deployment.md`
 设计文档：`docs/superpowers/designs/2026-08-15-langfuse-local-deployment-design.md`
-验收报告：`docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`
+验收报告：`docs/internal/e2e/2026-08-15-langfuse-8850-traffic-acceptance.md`
+
+> **这份台账记的是"这套部署怎么上的线"，不是内部 patch 条目。** 特性本身的 patch 台账在
+> `docs/internal/patches/feature-langfuse-tracing.md`，那份按 `README.md` 的
+> `patches/<分支名>.md` 约定命名并登记在总表里；本文按日期命名，是同一个特性的部署与运维记录，
+> 没有进总表。两份内容互补，读的时候一起看：那份讲代码改了什么、要不要提上游，本文讲
+> 8850 这套环境实际怎么配、容量怎么算、出过什么问题、怎么回滚。
 
 ## 1. 变更内容
 

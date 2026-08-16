@@ -126,7 +126,7 @@ networks:
 7. 故障隔离：临时 `docker compose stop langfuse-web`，确认 relay 请求与计费不受影响、错误日志被限流打印；恢复后继续上报。
 8. 观察 new-api 容器内存与 Langfuse ingestion 延迟，确认全采样阶段没有持续增长。
 
-结果写入 `docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`（脱敏）。
+结果写入 `docs/internal/e2e/2026-08-15-langfuse-8850-traffic-acceptance.md`（脱敏）。
 
 ## 8. 回滚
 

@@ -115,6 +115,11 @@ cd web && bun run typecheck && bun run build && bun test src/features/system-set
 `docs/internal/e2e/2026-08-15-langfuse-e2e-report.md`（13/13 用例组通过，含 trace name fallback、usage 入库
 口径、推价抑制、多 attempt/denylist、根路径与 base path 两种部署）。
 
+这条特性另有一套**部署侧**的记录，是在 8850 生产环境上线并跑真实流量得来的，与上面的代码级验收互补：
+`docs/internal/patches/2026-08-15-langfuse-local-deployment.md`（容量规划、回滚路径、压测、上线后全量对账）
+与 `docs/internal/e2e/2026-08-15-langfuse-8850-traffic-acceptance.md`（真实流量验收）。两者跑的 Langfuse
+版本不同（4.2.0 对 4.6.0），出现结论差异时以各自记录的环境为准。
+
 注意两条与计划书不一致但已确认的执行细节：
 
 - `plan-8` 里的 `go test ./service/langfuse -run TestPackageBoundaries` 匹配不到任何用例，实际测试名为
