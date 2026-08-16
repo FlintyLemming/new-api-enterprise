@@ -34,7 +34,13 @@ const (
 	maxContentBytes = 4194304
 
 	minResponseBytes = 65536
-	maxResponseBytes = 8388608
+	// The response buffer holds framed SSE bytes, which never reach an exported
+	// span: the worker aggregates them and bounds the result by
+	// max_content_bytes. So this ceiling is a pure memory quantity, sized for
+	// the framing overhead of a long streaming answer (measured at roughly 67
+	// raw bytes per output character on reasoning models) rather than for the
+	// span envelope.
+	maxResponseBytes = 67108864
 
 	minSessionBodyBytes = 1024
 	maxSessionBodyBytes = 65536
@@ -50,17 +56,28 @@ const (
 	minFlushIntervalSeconds = 1
 	maxFlushIntervalSeconds = 300
 
-	// Envelope headroom below the 9,500,000 decimal byte single-span warning
-	// Langfuse emits, and the local body planning ceiling for the BSP queue,
-	// the current batch and encode/compress buffers.
+	// Envelope headroom below LANGFUSE_OTEL_MAX_SPAN_BYTES, whose Langfuse
+	// default is 9,500,000 decimal bytes. Exceeding it is a warning on the
+	// Langfuse side ("OTEL oversized span detected"), not a rejection — spans
+	// well past it were verified to ingest and read back byte-exact — and the
+	// operator can raise it. We stay under the default anyway so a stock
+	// Langfuse never logs against this deployment.
 	maxQueuedSpanBytesLimit = 9_000_000
-	// 2 GiB, deliberately below the 3,168,000,000 bytes (2.95 GiB) that the
-	// worst legal tuple (queue 256, batch 32, span envelope 9,000,000) can plan.
-	// A ceiling of 3 GiB or more could never be crossed, turning this rule into
-	// dead code; 2 GiB still admits a 4 MiB content capture at a realistic
+	// 2 GiB, deliberately below the 2,952,790,016 bytes (2.75 GiB) that the
+	// worst legal tuple (queue 256, batch 32, span envelope 2*4 MiB) can plan.
+	// A ceiling above that could never be crossed, turning this rule into dead
+	// code; 2 GiB still admits a 4 MiB content capture at a realistic
 	// queue/batch while keeping the check able to reject an oversized one.
 	queueBodyPlanningLimit int64 = 2 * 1024 * 1024 * 1024
 )
+
+// A span body is one input plus one output, each already reduced to
+// max_content_bytes, so the field bound alone has to keep the envelope
+// satisfiable. Validate cannot express that — by the time it runs,
+// MaxContentBytes is already known to be in range, making a runtime envelope
+// check unreachable. This declaration fails to compile instead if a future edit
+// raises maxContentBytes past half the envelope.
+const _ = uint(maxQueuedSpanBytesLimit - 2*maxContentBytes)
 
 // RFC 7230 token characters, the only ones allowed in an HTTP field name.
 const httpTokenChars = "!#$%&'*+-.^_`|~" +
@@ -253,20 +270,22 @@ func Validate(s LangfuseSetting) error {
 		return errors.New("max_in_flight_capture_bytes 必须为正")
 	}
 
-	// The single-request capture reservation and the per-span body budget share
-	// the same expression: two content buffers plus one response buffer.
-	doubledContent, ok := checkedMul(2, int64(s.MaxContentBytes))
+	// A span carries at most one input and one output, each already reduced to
+	// max_content_bytes by prepareContent. The response buffer holds framed SSE
+	// bytes that the worker aggregates and then drops, so it is memory the
+	// request occupies, never bytes that leave for Langfuse. The two budgets
+	// therefore have different expressions and different ceilings; folding them
+	// into one made a large streaming buffer look like a large span and capped
+	// the buffer far below what a long answer needs.
+	spanBodyBytes, ok := checkedMul(2, int64(s.MaxContentBytes))
 	if !ok {
 		return errors.New("max_content_bytes 溢出")
 	}
-	maxQueuedSpanBytes, ok := checkedAdd(doubledContent, int64(s.MaxResponseBytes))
+	captureReservationBytes, ok := checkedAdd(spanBodyBytes, int64(s.MaxResponseBytes))
 	if !ok {
 		return errors.New("max_content_bytes/max_response_bytes 组合溢出")
 	}
-	if maxQueuedSpanBytes > maxQueuedSpanBytesLimit {
-		return fmt.Errorf("2*max_content_bytes+max_response_bytes 不得超过 %d 字节", maxQueuedSpanBytesLimit)
-	}
-	if int64(s.MaxInFlightCaptureBytes) < maxQueuedSpanBytes {
+	if int64(s.MaxInFlightCaptureBytes) < captureReservationBytes {
 		return errors.New("max_in_flight_capture_bytes 不得小于单请求 reservation 2*max_content_bytes+max_response_bytes")
 	}
 	batchSlots, ok := checkedMul(3, int64(s.BatchSize))
@@ -277,12 +296,12 @@ func Validate(s LangfuseSetting) error {
 	if !ok {
 		return errors.New("queue_size/batch_size 组合溢出")
 	}
-	plannedBytes, ok := checkedMul(plannedSlots, maxQueuedSpanBytes)
+	plannedBytes, ok := checkedMul(plannedSlots, spanBodyBytes)
 	if !ok {
 		return errors.New("queue/batch 正文规划溢出")
 	}
 	if plannedBytes > queueBodyPlanningLimit {
-		return fmt.Errorf("(queue_size+3*batch_size)*(2*max_content_bytes+max_response_bytes) 不得超过 %d 字节", queueBodyPlanningLimit)
+		return fmt.Errorf("(queue_size+3*batch_size)*(2*max_content_bytes) 不得超过 %d 字节", queueBodyPlanningLimit)
 	}
 
 	for _, name := range s.SessionHeaderNames {

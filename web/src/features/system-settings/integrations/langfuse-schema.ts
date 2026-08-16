@@ -28,7 +28,12 @@ import type { LangfuseSettingsView } from './langfuse-api'
 
 export const LANGFUSE_BOUNDS = {
   contentBytes: { min: 4096, max: 4194304 },
-  responseBytes: { min: 65536, max: 8388608 },
+  /**
+   * The response buffer holds framed SSE bytes that the worker aggregates and
+   * drops, so they never reach a span. This is a memory bound, sized for the
+   * framing overhead of a long streaming answer, not a span bound.
+   */
+  responseBytes: { min: 65536, max: 67108864 },
   sessionBodyBytes: { min: 1024, max: 65536 },
   queueSize: { min: 16, max: 256 },
   batchSize: { min: 1, max: 32 },
@@ -37,7 +42,7 @@ export const LANGFUSE_BOUNDS = {
   maxQueuedSpanBytes: 9_000_000,
   /**
    * Local planning ceiling for queued, in-flight and encoded span bodies. Kept
-   * below the 3,168,000,000 bytes the worst legal tuple can plan, so the rule
+   * below the 2,952,790,016 bytes the worst legal tuple can plan, so the rule
    * stays reachable instead of becoming dead validation.
    */
   queueBodyPlanningBytes: 2 * 1024 * 1024 * 1024,
@@ -66,7 +71,7 @@ export const LANGFUSE_VALIDATION_MESSAGES = {
   sampleRateRange: 'Sample rate must be between 0 and 1',
   contentRange: 'Content capture limit must be between 4096 and 4194304 bytes',
   responseRange:
-    'Response capture limit must be between 65536 and 8388608 bytes',
+    'Response capture limit must be between 65536 and 67108864 bytes',
   sessionBodyRange:
     'Session body read limit must be between 1024 and 65536 bytes',
   queueRange: 'Queue size must be between 16 and 256',
@@ -75,8 +80,7 @@ export const LANGFUSE_VALIDATION_MESSAGES = {
   flushRange: 'Flush interval must be between 1 and 300 seconds',
   budgetBelowReservation:
     'Global capture budget must be at least the per-request reservation',
-  spanBodyLimit:
-    'Two content limits plus one response limit cannot exceed 9000000 bytes',
+  spanBodyLimit: 'Two content limits cannot exceed 9000000 bytes',
   queuePlanningLimit:
     'Queue and batch planning cannot exceed 2 GiB of span bodies',
   headerNameInvalid: 'Enter valid HTTP header names, one per line',
@@ -237,16 +241,19 @@ export const langfuseFormSchema = langfuseFormObject.superRefine(
       })
     }
 
-    // One capture reserves two content buffers plus one response buffer; the
-    // same expression bounds a single exported span body.
-    const reservation = 2 * values.max_content_bytes + values.max_response_bytes
-    if (reservation > LANGFUSE_BOUNDS.maxQueuedSpanBytes) {
+    // A span carries one input plus one output, each already reduced to the
+    // content limit. The response buffer is framed SSE that the exporter
+    // aggregates and drops, so it is memory the request holds, not bytes that
+    // reach Langfuse — only the capture budget bounds it.
+    const spanBody = 2 * values.max_content_bytes
+    if (spanBody > LANGFUSE_BOUNDS.maxQueuedSpanBytes) {
       ctx.addIssue({
         code: 'custom',
-        path: ['max_response_bytes'],
+        path: ['max_content_bytes'],
         message: LANGFUSE_VALIDATION_MESSAGES.spanBodyLimit,
       })
     }
+    const reservation = spanBody + values.max_response_bytes
     if (values.max_in_flight_capture_bytes < reservation) {
       ctx.addIssue({
         code: 'custom',
@@ -255,7 +262,7 @@ export const langfuseFormSchema = langfuseFormObject.superRefine(
       })
     }
     const plannedSlots = values.queue_size + 3 * values.batch_size
-    if (plannedSlots * reservation > LANGFUSE_BOUNDS.queueBodyPlanningBytes) {
+    if (plannedSlots * spanBody > LANGFUSE_BOUNDS.queueBodyPlanningBytes) {
       ctx.addIssue({
         code: 'custom',
         path: ['queue_size'],

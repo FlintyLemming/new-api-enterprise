@@ -38,11 +38,32 @@ describe('Langfuse capture capacity estimate', () => {
 
     assert.deepEqual(capacity, {
       reservationBytes: 655360,
+      spanBodyBytes: 131072,
       captureSlots: 819,
       sampledRps: 27.3,
-      residentBytes: 578813952,
-      exportBytes: 610271232,
+      residentBytes: 545259520,
+      exportBytes: 551550976,
     })
+  })
+
+  // A streaming response buffer is framed SSE the exporter aggregates and
+  // drops. Charging it to the queue planning made a buffer sized for a long
+  // answer look like gigabytes of pending span bodies.
+  test('keeps a raised response limit out of the queued span planning', () => {
+    const capacity = describeCaptureCapacity({
+      ...defaultLimits,
+      max_content_bytes: 4194304,
+      max_response_bytes: 67108864,
+      max_in_flight_capture_bytes: 34359738368,
+      queue_size: 128,
+      batch_size: 4,
+    })
+
+    assert.equal(capacity.spanBodyBytes, 8388608)
+    assert.equal(capacity.reservationBytes, 75497472)
+    assert.equal(capacity.captureSlots, 455)
+    // 34359738368 + (128 + 3*4) * 8388608, not the reservation.
+    assert.equal(capacity.exportBytes, 35534143488)
   })
 
   test('follows a raised response limit into fewer concurrent slots', () => {
@@ -68,7 +89,7 @@ describe('Langfuse capture capacity estimate', () => {
 
   test('formats the reservation in KiB and the planning totals in MiB', () => {
     assert.equal(formatCaptureBytes(655360), '640 KiB')
-    assert.equal(formatCaptureBytes(578813952), '552 MiB')
-    assert.equal(formatCaptureBytes(610271232), '582 MiB')
+    assert.equal(formatCaptureBytes(545259520), '520 MiB')
+    assert.equal(formatCaptureBytes(551550976), '526 MiB')
   })
 })

@@ -40,6 +40,12 @@ export type LangfuseCaptureLimits = {
 export type LangfuseCaptureCapacity = {
   /** Bytes a single sampled request reserves from the global budget. */
   reservationBytes: number
+  /**
+   * Bytes one queued span body can reach: one input plus one output, both
+   * reduced to the content limit. The response buffer is aggregated away before
+   * a span is queued, so it is deliberately absent here.
+   */
+  spanBodyBytes: number
   /** Concurrent sampled requests the budget admits. */
   captureSlots: number
   sampledRps: number
@@ -56,8 +62,8 @@ function roundToTenth(value: number): number {
 export function describeCaptureCapacity(
   limits: LangfuseCaptureLimits
 ): LangfuseCaptureCapacity {
-  const reservationBytes =
-    2 * limits.max_content_bytes + limits.max_response_bytes
+  const spanBodyBytes = 2 * limits.max_content_bytes
+  const reservationBytes = spanBodyBytes + limits.max_response_bytes
   const captureSlots =
     reservationBytes > 0
       ? Math.floor(limits.max_in_flight_capture_bytes / reservationBytes)
@@ -65,13 +71,14 @@ export function describeCaptureCapacity(
 
   return {
     reservationBytes,
+    spanBodyBytes,
     captureSlots,
     sampledRps: roundToTenth(captureSlots / LANGFUSE_AVERAGE_CAPTURE_SECONDS),
     residentBytes:
-      limits.max_in_flight_capture_bytes + limits.queue_size * reservationBytes,
+      limits.max_in_flight_capture_bytes + limits.queue_size * spanBodyBytes,
     exportBytes:
       limits.max_in_flight_capture_bytes +
-      (limits.queue_size + 3 * limits.batch_size) * reservationBytes,
+      (limits.queue_size + 3 * limits.batch_size) * spanBodyBytes,
   }
 }
 

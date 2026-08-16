@@ -219,11 +219,13 @@ func TestValidateAccepts(t *testing.T) {
 			s.QueueSize = 16
 			s.BatchSize = 1
 		}},
-		// 2*4096 + 8388608 = 8,396,800 <= 9,000,000;
-		// (16 + 3*1) * 8,396,800 = 159,539,200 <= 2 GiB.
+		// The response buffer is memory only, so its maximum is reachable
+		// alongside any legal content bound; the capture budget just has to
+		// cover 2*4096 + 67108864 = 67,117,056.
 		{"max response bytes reachable", func(s *LangfuseSetting) {
 			s.MaxContentBytes = 4096
-			s.MaxResponseBytes = 8388608
+			s.MaxResponseBytes = 67108864
+			s.MaxInFlightCaptureBytes = 134217728
 			s.QueueSize = 16
 			s.BatchSize = 1
 		}},
@@ -255,25 +257,37 @@ func TestValidateAccepts(t *testing.T) {
 }
 
 // The audit-completeness configuration this deployment runs: a 4 MiB content
-// capture keeps long-context prompts whole instead of truncating them. It is
-// the contract behind the raised ceilings, so it must stay saveable.
+// capture keeps long-context prompts whole, and a response buffer far larger
+// than any span holds a long streaming answer whole. Framed SSE costs roughly
+// 67 raw bytes per output character on reasoning models, so a 512 KiB buffer
+// kept only ~7.8K characters and dropped the final answer of long replies.
+// This configuration must stay saveable, and the two budgets must be checked
+// against their own ceilings — folding them together is what capped the buffer.
 func TestValidateAcceptsAuditContentCapture(t *testing.T) {
 	s := validSetting()
 	s.SendContent = true
 	s.MaxContentBytes = 4194304
-	s.MaxResponseBytes = 524288
+	s.MaxResponseBytes = 67108864
 	s.QueueSize = 128
 	s.BatchSize = 4
-	s.MaxInFlightCaptureBytes = 8589934592
+	s.MaxInFlightCaptureBytes = 34359738368
 
 	require.NoError(t, Validate(s))
 
-	// reservation = 2*4194304 + 524288 = 8,912,896 <= 9,000,000 envelope;
-	// (128 + 3*4) * 8,912,896 = 1,247,805,440 <= 2 GiB planning ceiling.
-	reservation := 2*s.MaxContentBytes + s.MaxResponseBytes
-	assert.Equal(t, 8912896, reservation)
-	assert.LessOrEqual(t, int64(reservation), int64(maxQueuedSpanBytesLimit))
-	assert.LessOrEqual(t, int64(s.QueueSize+3*s.BatchSize)*int64(reservation), queueBodyPlanningLimit)
+	// A span carries one input plus one output, both reduced to
+	// max_content_bytes; the response buffer is aggregated away before the span
+	// is queued and must not count toward either span-side ceiling.
+	spanBody := int64(2 * s.MaxContentBytes)
+	assert.Equal(t, int64(8388608), spanBody)
+	assert.LessOrEqual(t, spanBody, int64(maxQueuedSpanBytesLimit))
+	assert.LessOrEqual(t, int64(s.QueueSize+3*s.BatchSize)*spanBody, queueBodyPlanningLimit)
+
+	// The reservation is the memory one request may occupy, and only the
+	// in-flight budget bounds it.
+	reservation := spanBody + int64(s.MaxResponseBytes)
+	assert.Equal(t, int64(75497472), reservation)
+	assert.Greater(t, reservation, int64(maxQueuedSpanBytesLimit))
+	assert.LessOrEqual(t, reservation, int64(s.MaxInFlightCaptureBytes))
 }
 
 func TestValidateRejects(t *testing.T) {
@@ -284,7 +298,7 @@ func TestValidateRejects(t *testing.T) {
 		{"content bytes below range", func(s *LangfuseSetting) { s.MaxContentBytes = 4095 }},
 		{"content bytes above range", func(s *LangfuseSetting) { s.MaxContentBytes = 4194305 }},
 		{"response bytes below range", func(s *LangfuseSetting) { s.MaxResponseBytes = 65535 }},
-		{"response bytes above range", func(s *LangfuseSetting) { s.MaxResponseBytes = 8388609 }},
+		{"response bytes above range", func(s *LangfuseSetting) { s.MaxResponseBytes = 67108865 }},
 		{"session body bytes below range", func(s *LangfuseSetting) { s.MaxSessionBodyBytes = 1023 }},
 		{"session body bytes above range", func(s *LangfuseSetting) { s.MaxSessionBodyBytes = 65537 }},
 		{"queue size below range", func(s *LangfuseSetting) { s.QueueSize = 15 }},
@@ -296,14 +310,10 @@ func TestValidateRejects(t *testing.T) {
 		// only requires an explicit finite range for the flush interval.
 		{"flush interval below range", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 0 }},
 		{"flush interval above range", func(s *LangfuseSetting) { s.FlushIntervalSeconds = 301 }},
-		// 2*4194304 + 8388608 = 16,777,216 > 9,000,000 single-span envelope.
-		{"single span envelope exceeded", func(s *LangfuseSetting) {
-			s.MaxContentBytes = 4194304
-			s.MaxResponseBytes = 8388608
-		}},
-		// Span envelope stays legal (2*4194304 + 524288 = 8,912,896 <= 9,000,000)
-		// but (256 + 3*32) * 8,912,896 = 3,137,339,392 blows the 2 GiB
-		// queue/batch body planning bound.
+		// Span body stays legal (2*4194304 = 8,388,608 <= 9,000,000) but
+		// (256 + 3*32) * 8,388,608 = 2,952,790,016 blows the 2 GiB queue/batch
+		// body planning bound. A huge response buffer must not contribute here:
+		// it is aggregated away before a span is queued.
 		{"queue body planning exceeded", func(s *LangfuseSetting) {
 			s.MaxContentBytes = 4194304
 			s.MaxResponseBytes = 524288

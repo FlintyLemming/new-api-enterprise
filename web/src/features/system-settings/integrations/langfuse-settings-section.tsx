@@ -488,13 +488,15 @@ export function LangfuseSettingsSection() {
                   <Input
                     type='number'
                     min={65536}
-                    max={8388608}
+                    max={67108864}
                     step={1024}
                     {...safeNumberFieldProps(field)}
                   />
                 </FormControl>
                 <FormDescription>
-                  {t('Bytes of upstream response body buffered per request')}
+                  {t(
+                    'Bytes of upstream response body buffered per request. Streaming responses are buffered as framed SSE, which costs far more than the answer text it carries, so a long reply needs a limit well above its own size.'
+                  )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>

@@ -245,7 +245,7 @@ const schemaCases: SchemaCase[] = [
   },
   {
     name: 'a response limit above the maximum',
-    overrides: { max_response_bytes: 8388609 },
+    overrides: { max_response_bytes: 67108865 },
     expected: {
       path: 'max_response_bytes',
       message: LANGFUSE_VALIDATION_MESSAGES.responseRange,
@@ -337,14 +337,15 @@ const schemaCases: SchemaCase[] = [
   },
   {
     // The audit-completeness configuration the deployment runs: a 4 MiB content
-    // capture keeps long-context prompts whole. Reservation is
-    // 2*4194304 + 524288 = 8,912,896 and planning (128 + 3*4) * 8,912,896 =
-    // 1,247,805,440, both inside the raised ceilings.
-    name: 'the 4 MiB audit content capture at a realistic queue and batch',
+    // capture keeps long-context prompts whole, and a 64 MiB response buffer
+    // holds a long streaming answer whole. Span body is 2*4194304 = 8,388,608
+    // and planning (128 + 3*4) * 8,388,608 = 1,174,405,120; the 75,497,472
+    // reservation is bounded only by the capture budget.
+    name: 'the audit content capture and streaming response buffer together',
     overrides: {
       max_content_bytes: 4194304,
-      max_response_bytes: 524288,
-      max_in_flight_capture_bytes: 8589934592,
+      max_response_bytes: 67108864,
+      max_in_flight_capture_bytes: 34359738368,
       queue_size: 128,
       batch_size: 4,
     },
@@ -354,19 +355,24 @@ const schemaCases: SchemaCase[] = [
     name: 'the response maximum with everything else at its minimum',
     overrides: {
       max_content_bytes: 4096,
-      max_response_bytes: 8388608,
+      max_response_bytes: 67108864,
+      max_in_flight_capture_bytes: 134217728,
       queue_size: 16,
       batch_size: 1,
     },
     expected: 'accepted',
   },
   {
+    // A response buffer far past the span envelope is legal: it is framed SSE
+    // the exporter aggregates away, never bytes that reach Langfuse. Only the
+    // capture budget has to cover it.
     name: 'both content and response at their maximum',
-    overrides: { max_content_bytes: 4194304, max_response_bytes: 8388608 },
-    expected: {
-      path: 'max_response_bytes',
-      message: LANGFUSE_VALIDATION_MESSAGES.spanBodyLimit,
+    overrides: {
+      max_content_bytes: 4194304,
+      max_response_bytes: 67108864,
+      max_in_flight_capture_bytes: 34359738368,
     },
+    expected: 'accepted',
   },
   {
     name: 'a capture budget one byte below the per-request reservation',

@@ -379,14 +379,18 @@ describe('Langfuse settings section', () => {
     assert.ok(defaults.includes('640 KiB'), defaults)
     assert.ok(defaults.includes('819'), defaults)
     assert.ok(defaults.includes('27.3'), defaults)
-    assert.ok(defaults.includes('552 MiB'), defaults)
-    assert.ok(defaults.includes('582 MiB'), defaults)
+    assert.ok(defaults.includes('520 MiB'), defaults)
+    assert.ok(defaults.includes('526 MiB'), defaults)
 
     await changeInput(findInput('Response capture limit'), '1048576')
 
+    // Raising the streaming buffer costs concurrent slots but leaves the
+    // queued span bodies alone: it never becomes span payload.
     const raised = capacityHintText()
     assert.ok(raised.includes('1.1 MiB'), raised)
     assert.ok(raised.includes('455'), raised)
     assert.ok(raised.includes('15.2'), raised)
+    assert.ok(raised.includes('520 MiB'), raised)
+    assert.ok(raised.includes('526 MiB'), raised)
   })
 })
