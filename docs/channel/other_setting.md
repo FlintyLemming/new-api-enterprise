@@ -1,6 +1,6 @@
 # 渠道额外设置说明
 
-该配置用于设置一些额外的渠道参数，可以通过 JSON 对象进行配置。主要包含以下四个设置项：
+该配置用于设置一些额外的渠道参数，可以通过 JSON 对象进行配置。主要包含以下五个设置项：
 
 1. force_format
     - 用于标识是否对数据进行强制格式化为 OpenAI 格式
@@ -21,6 +21,12 @@
    - 类型为布尔值，默认 false / 省略。在 Claude Code 中使用此渠道时建议开启，避免客户端用量统计把缓存算进 `input_tokens`
    - 仅影响返回给 Anthropic Messages 客户端的 usage，不影响计费、Chat Completions 客户端，也不影响 New API 内日志显示的用量
 
+5. strip_anthropic_billing_header
+   - 将 Claude Messages 的 system 压成一条 OpenAI chat string 时，丢掉以 `x-anthropic-billing-header:` 开头的 system 块（或字符串 system 的第一行）
+   - 类型为布尔值，默认 false / 省略
+   - 只影响发给非 Claude 上游的 system 正文；OpenRouter 上 `anthropic/claude-*` 的分块路径不过滤；不改 New API 计费，也不改客户端请求
+   - 在 Claude Code 对接本地 DeepSeek 等非 Claude 上游时建议开启，避免变化的计费头打断前缀缓存
+
 --------------------------------------------------------------
 
 ## JSON 格式示例
@@ -32,6 +38,7 @@
     "force_format": true,
     "thinking_to_content": true,
     "anthropic_messages_exclude_cache": true,
+    "strip_anthropic_billing_header": true,
     "proxy": "socks5://proxy.example:1080"
 }
 ```

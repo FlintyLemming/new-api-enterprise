@@ -274,6 +274,7 @@ export const channelFormSchema = z
     force_format: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
     anthropic_messages_exclude_cache: z.boolean().optional(),
+    strip_anthropic_billing_header: z.boolean().optional(),
     proxy: z
       .string()
       .optional()
@@ -453,6 +454,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   force_format: false,
   thinking_to_content: false,
   anthropic_messages_exclude_cache: false,
+  strip_anthropic_billing_header: false,
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
@@ -495,6 +497,7 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     anthropic_messages_exclude_cache: false,
+    strip_anthropic_billing_header: false,
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
@@ -519,6 +522,8 @@ export function transformChannelToFormDefaults(
         thinking_to_content: parsed.thinking_to_content || false,
         anthropic_messages_exclude_cache:
           parsed.anthropic_messages_exclude_cache || false,
+        strip_anthropic_billing_header:
+          parsed.strip_anthropic_billing_header || false,
         proxy: parsed.proxy || '',
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
@@ -643,6 +648,8 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     thinking_to_content: formData.thinking_to_content || false,
     anthropic_messages_exclude_cache:
       formData.anthropic_messages_exclude_cache || false,
+    strip_anthropic_billing_header:
+      formData.strip_anthropic_billing_header || false,
     proxy: formData.proxy?.trim() || '',
     pass_through_body_enabled: formData.pass_through_body_enabled || false,
     system_prompt: formData.system_prompt || '',

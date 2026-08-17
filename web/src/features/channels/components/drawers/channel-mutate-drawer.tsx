@@ -284,6 +284,7 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'anthropic_messages_exclude_cache',
+  'strip_anthropic_billing_header',
   'proxy',
   'http_protocol',
   'http2_connection_shards',
@@ -342,6 +343,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.force_format ||
     values.thinking_to_content ||
     values.anthropic_messages_exclude_cache ||
+    values.strip_anthropic_billing_header ||
     values.pass_through_body_enabled ||
     values.system_prompt_override ||
     (values.http_protocol && values.http_protocol !== 'auto') ||
@@ -753,6 +755,9 @@ export function ChannelMutateDrawer({
   const currentAnthropicMessagesExcludeCache = form.watch(
     'anthropic_messages_exclude_cache'
   )
+  const currentStripAnthropicBillingHeader = form.watch(
+    'strip_anthropic_billing_header'
+  )
   const currentPassThroughBodyEnabled = form.watch('pass_through_body_enabled')
   const currentDisableTaskPollingSleep = form.watch(
     'disable_task_polling_sleep'
@@ -1029,6 +1034,7 @@ export function ChannelMutateDrawer({
     currentForceFormat ||
     currentThinkingToContent ||
     currentAnthropicMessagesExcludeCache ||
+    currentStripAnthropicBillingHeader ||
     currentPassThroughBodyEnabled ||
     currentDisableTaskPollingSleep ||
     currentProxy?.trim() ||
@@ -4148,6 +4154,33 @@ export function ChannelMutateDrawer({
                                       <FormDescription>
                                         {t(
                                           'Recommended when using Claude Code, to avoid incorrect client-side usage stats. This only changes usage sent to the client; it does not change usage shown in New API logs.'
+                                        )}
+                                      </FormDescription>
+                                    </div>
+                                    <FormControl>
+                                      <Switch
+                                        checked={field.value}
+                                        onCheckedChange={field.onChange}
+                                      />
+                                    </FormControl>
+                                  </FormItem>
+                                )}
+                              />
+
+                              <FormField
+                                control={form.control}
+                                name='strip_anthropic_billing_header'
+                                render={({ field }) => (
+                                  <FormItem className='flex items-center justify-between px-4 py-3'>
+                                    <div className='space-y-0.5'>
+                                      <FormLabel>
+                                        {t(
+                                          'Strip Claude client billing headers'
+                                        )}
+                                      </FormLabel>
+                                      <FormDescription>
+                                        {t(
+                                          'Removes x-anthropic-billing-header from the system text sent to non-Claude upstreams. Does not change New API billing or the original client request.'
                                         )}
                                       </FormDescription>
                                     </div>

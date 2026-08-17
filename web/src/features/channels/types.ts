@@ -83,6 +83,7 @@ export interface ChannelSettings {
   force_format?: boolean
   thinking_to_content?: boolean
   anthropic_messages_exclude_cache?: boolean
+  strip_anthropic_billing_header?: boolean
   proxy?: string
   pass_through_body_enabled?: boolean
   system_prompt?: string
