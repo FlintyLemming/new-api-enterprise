@@ -95,20 +95,27 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info con
 
 	openAIMessages := make([]dto.Message, 0)
 	if claudeRequest.System != nil {
+		stripBilling := convmeta.OptionsOf(info).Claude.StripAnthropicBillingHeader
 		if claudeRequest.IsStringSystem() && claudeRequest.GetStringSystem() != "" {
-			openAIMessage := dto.Message{
-				Role: "system",
+			systemText := claudeRequest.GetStringSystem()
+			if stripBilling {
+				systemText = stripLeadingClaudeBillingHeaderLine(systemText)
 			}
-			openAIMessage.SetStringContent(claudeRequest.GetStringSystem())
-			openAIMessages = append(openAIMessages, openAIMessage)
-		} else {
-			systems := claudeRequest.ParseSystem()
-			if len(systems) > 0 {
+			if systemText != "" {
 				openAIMessage := dto.Message{
 					Role: "system",
 				}
+				openAIMessage.SetStringContent(systemText)
+				openAIMessages = append(openAIMessages, openAIMessage)
+			}
+		} else {
+			systems := claudeRequest.ParseSystem()
+			if len(systems) > 0 {
 				isOpenRouterClaude := isOpenRouter && strings.HasPrefix(convmeta.UpstreamModelName(info), "anthropic/claude")
 				if isOpenRouterClaude {
+					openAIMessage := dto.Message{
+						Role: "system",
+					}
 					systemMediaMessages := make([]dto.MediaContent, 0, len(systems))
 					for _, system := range systems {
 						message := dto.MediaContent{
@@ -119,16 +126,26 @@ func ClaudeMessagesRequestToOpenAIChat(claudeRequest dto.ClaudeRequest, info con
 						systemMediaMessages = append(systemMediaMessages, message)
 					}
 					openAIMessage.SetMediaContent(systemMediaMessages)
+					openAIMessages = append(openAIMessages, openAIMessage)
 				} else {
 					systemStr := ""
 					for _, system := range systems {
-						if system.Text != nil {
-							systemStr += *system.Text
+						if system.Text == nil {
+							continue
 						}
+						if stripBilling && shouldStripClaudeSystemText(*system.Text) {
+							continue
+						}
+						systemStr += *system.Text
 					}
-					openAIMessage.SetStringContent(systemStr)
+					if systemStr != "" || !stripBilling {
+						openAIMessage := dto.Message{
+							Role: "system",
+						}
+						openAIMessage.SetStringContent(systemStr)
+						openAIMessages = append(openAIMessages, openAIMessage)
+					}
 				}
-				openAIMessages = append(openAIMessages, openAIMessage)
 			}
 		}
 	}
@@ -216,4 +233,25 @@ func requestToJSONString(v interface{}) string {
 		return "{}"
 	}
 	return string(b)
+}
+
+const anthropicBillingHeaderPrefix = "x-anthropic-billing-header:"
+
+func shouldStripClaudeSystemText(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), anthropicBillingHeaderPrefix)
+}
+
+func stripLeadingClaudeBillingHeaderLine(s string) string {
+	if !shouldStripClaudeSystemText(s) {
+		return s
+	}
+	s = strings.TrimLeftFunc(s, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimLeftFunc(s[i+1:], func(r rune) bool {
+			return r == ' ' || r == '\t' || r == '\n' || r == '\r'
+		})
+	}
+	return ""
 }
