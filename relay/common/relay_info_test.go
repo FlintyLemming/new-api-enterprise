@@ -194,3 +194,21 @@ func TestRelayInfoConvOptionsCopiesAnthropicMessagesExcludeCache(t *testing.T) {
 	var nilInfo *RelayInfo
 	assert.False(t, nilInfo.ConvOptions().Claude.AnthropicMessagesExcludeCache)
 }
+
+func TestRelayInfoConvOptionsCopiesStripAnthropicBillingHeader(t *testing.T) {
+	enabled := &RelayInfo{
+		ChannelMeta: &ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{StripAnthropicBillingHeader: true},
+		},
+	}
+	assert.True(t, enabled.ConvOptions().Claude.StripAnthropicBillingHeader)
+
+	unset := &RelayInfo{ChannelMeta: &ChannelMeta{}}
+	assert.False(t, unset.ConvOptions().Claude.StripAnthropicBillingHeader)
+
+	noMeta := &RelayInfo{}
+	assert.False(t, noMeta.ConvOptions().Claude.StripAnthropicBillingHeader)
+
+	var nilInfo *RelayInfo
+	assert.False(t, nilInfo.ConvOptions().Claude.StripAnthropicBillingHeader)
+}

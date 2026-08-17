@@ -818,8 +818,10 @@ func (info *RelayInfo) ConvOptions() *convmeta.Options {
 	claudeSettings := model_setting.GetClaudeSettings()
 	geminiSettings := model_setting.GetGeminiSettings()
 	anthropicMessagesExcludeCache := false
+	stripAnthropicBillingHeader := false
 	if info != nil && info.ChannelMeta != nil {
 		anthropicMessagesExcludeCache = info.ChannelSetting.AnthropicMessagesExcludeCache
+		stripAnthropicBillingHeader = info.ChannelSetting.StripAnthropicBillingHeader
 	}
 	options := &convmeta.Options{
 		Claude: convmeta.ClaudeOptions{
@@ -827,6 +829,7 @@ func (info *RelayInfo) ConvOptions() *convmeta.Options {
 			ThinkingAdapterBudgetTokensPercentage: claudeSettings.ThinkingAdapterBudgetTokensPercentage,
 			DefaultMaxTokens:                      claudeSettings.GetDefaultMaxTokens,
 			AnthropicMessagesExcludeCache:         anthropicMessagesExcludeCache,
+			StripAnthropicBillingHeader:           stripAnthropicBillingHeader,
 		},
 		Gemini: convmeta.GeminiOptions{
 			ThinkingAdapterEnabled:                geminiSettings.ThinkingAdapterEnabled,

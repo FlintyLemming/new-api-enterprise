@@ -14,6 +14,10 @@ type ChannelSettings struct {
 	ForceFormat                   bool `json:"force_format,omitempty"`
 	ThinkingToContent             bool `json:"thinking_to_content,omitempty"`
 	AnthropicMessagesExcludeCache bool `json:"anthropic_messages_exclude_cache,omitempty"`
+	// StripAnthropicBillingHeader drops Claude Code's
+	// x-anthropic-billing-header system prefix when flattening Claude
+	// Messages system blocks into one OpenAI chat system string.
+	StripAnthropicBillingHeader bool `json:"strip_anthropic_billing_header,omitempty"`
 	// CachePromptTokenSemantic declares whether the upstream provider counts
 	// cached prompt tokens inside usage.prompt_tokens. Empty means auto-detect
 	// from usage semantic; "prompt_includes_cache"/"prompt_excludes_cache"

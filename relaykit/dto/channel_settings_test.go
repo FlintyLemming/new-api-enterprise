@@ -619,3 +619,23 @@ func TestChannelSettingsAnthropicMessagesExcludeCacheJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(encoded, &enabledDecoded))
 	assert.True(t, enabledDecoded.AnthropicMessagesExcludeCache)
 }
+
+func TestChannelSettingsStripAnthropicBillingHeaderJSON(t *testing.T) {
+	omitted := ChannelSettings{}
+	encoded, err := json.Marshal(omitted)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "strip_anthropic_billing_header")
+
+	var decoded ChannelSettings
+	require.NoError(t, json.Unmarshal([]byte(`{"proxy":"http://127.0.0.1:8080"}`), &decoded))
+	assert.False(t, decoded.StripAnthropicBillingHeader)
+
+	enabled := ChannelSettings{StripAnthropicBillingHeader: true}
+	encoded, err = json.Marshal(enabled)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"strip_anthropic_billing_header":true`)
+
+	var enabledDecoded ChannelSettings
+	require.NoError(t, json.Unmarshal(encoded, &enabledDecoded))
+	assert.True(t, enabledDecoded.StripAnthropicBillingHeader)
+}

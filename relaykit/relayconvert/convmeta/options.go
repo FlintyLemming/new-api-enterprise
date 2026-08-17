@@ -41,6 +41,11 @@ type ClaudeOptions struct {
 	// tokens inside prompt_tokens, and zeros message_start input so clients
 	// do not keep the pre-usage estimate. Default false.
 	AnthropicMessagesExcludeCache bool
+	// StripAnthropicBillingHeader drops Claude Code's
+	// x-anthropic-billing-header system prefix when flattening Claude
+	// Messages system blocks into one OpenAI chat system string. Default
+	// false. Does not apply to the OpenRouter Claude chunked path.
+	StripAnthropicBillingHeader bool
 }
 
 type GeminiOptions struct {
