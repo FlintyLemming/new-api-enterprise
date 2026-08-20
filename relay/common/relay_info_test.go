@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	hostcommon "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -193,6 +195,24 @@ func TestRelayInfoConvOptionsCopiesAnthropicMessagesExcludeCache(t *testing.T) {
 
 	var nilInfo *RelayInfo
 	assert.False(t, nilInfo.ConvOptions().Claude.AnthropicMessagesExcludeCache)
+}
+
+func TestAppliesTokenQuota(t *testing.T) {
+	assert.False(t, (*RelayInfo)(nil).AppliesTokenQuota())
+	assert.True(t, (&RelayInfo{}).AppliesTokenQuota())
+	assert.False(t, (&RelayInfo{IsPlayground: true}).AppliesTokenQuota())
+	assert.False(t, (&RelayInfo{IsExchangeKey: true}).AppliesTokenQuota())
+}
+
+func TestGenRelayInfoCopiesExchangeKeyFlag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	hostcommon.SetContextKey(ctx, constant.ContextKeyExchangeKey, true)
+
+	info, err := GenRelayInfo(ctx, types.RelayFormatOpenAI, nil, nil)
+	require.NoError(t, err)
+	assert.True(t, info.IsExchangeKey)
 }
 
 func TestRelayInfoConvOptionsCopiesStripAnthropicBillingHeader(t *testing.T) {

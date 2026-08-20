@@ -141,6 +141,16 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 	return logs, err
 }
 
+func GetLogsByUserIDAndTokenName(userID int, tokenName string) (logs []*Log, err error) {
+	order := "id desc"
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		order = clickHouseLogOrder("")
+	}
+	err = LOG_DB.Model(&Log{}).Where("user_id = ? AND token_name = ?", userID, tokenName).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
+	formatUserLogs(logs, 0)
+	return logs, err
+}
+
 func RecordLog(userId int, logType int, content string) {
 	if logType == LogTypeConsume && !common.LogConsumeEnabled {
 		return

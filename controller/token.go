@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/exchange_key"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -231,6 +232,25 @@ func GetTokenUsage(c *gin.Context) {
 		return
 	}
 	tokenKey := parts[1]
+
+	if common.GetContextKeyBool(c, constant.ContextKeyExchangeKey) {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    true,
+			"message": "ok",
+			"data": gin.H{
+				"object":               "token_usage",
+				"name":                 exchange_key.TokenName,
+				"total_granted":        0,
+				"total_used":           0,
+				"total_available":      0,
+				"unlimited_quota":      true,
+				"model_limits":         map[string]bool{},
+				"model_limits_enabled": false,
+				"expires_at":           0,
+			},
+		})
+		return
+	}
 
 	token, err := model.GetTokenByKey(strings.TrimPrefix(tokenKey, "sk-"), false)
 	if err != nil {

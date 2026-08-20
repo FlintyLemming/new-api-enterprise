@@ -95,6 +95,7 @@ type RelayInfo struct {
 	IsStream               bool
 	IsGeminiBatchEmbedding bool
 	IsPlayground           bool
+	IsExchangeKey          bool
 	UsePrice               bool
 	RelayMode              int
 	OriginModelName        string
@@ -259,6 +260,7 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "RelayMode: %d, ", info.RelayMode)
 	fmt.Fprintf(b, "IsStream: %t, ", info.IsStream)
 	fmt.Fprintf(b, "IsPlayground: %t, ", info.IsPlayground)
+	fmt.Fprintf(b, "IsExchangeKey: %t, ", info.IsExchangeKey)
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)
 	fmt.Fprintf(b, "EstimatePromptTokens: %d, ", info.estimatePromptTokens)
@@ -320,6 +322,10 @@ func (info *RelayInfo) ToString() string {
 
 	fmt.Fprintf(b, "}")
 	return b.String()
+}
+
+func (info *RelayInfo) AppliesTokenQuota() bool {
+	return info != nil && !info.IsPlayground && !info.IsExchangeKey
 }
 
 // 定义支持流式选项的通道类型
@@ -546,6 +552,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
 		info.RequestURLPath = "/v1" + info.RequestURLPath
 	}
+
+	info.IsExchangeKey = common.GetContextKeyBool(c, constant.ContextKeyExchangeKey)
 
 	userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
 	if ok {

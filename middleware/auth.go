@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/exchange_key"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -272,6 +273,46 @@ func TokenOrUserAuth() func(c *gin.Context) {
 	}
 }
 
+func setupExchangeKey(c *gin.Context, rawKey string, writeBanned, writeDBError func()) bool {
+	if !exchange_key.IsEffective() {
+		return false
+	}
+	username, mac, ok := exchange_key.ParseExchangeKey(rawKey)
+	if !ok {
+		return false
+	}
+	if !exchange_key.MACEqual(exchange_key.Effective().Secret, username, mac) {
+		return false
+	}
+	userID, err := model.GetUserIDByUsername(username)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false
+	}
+	if err != nil {
+		writeDBError()
+		return true
+	}
+	cache, err := model.GetUserCache(userID)
+	if err != nil {
+		writeDBError()
+		return true
+	}
+	if cache.Status != common.UserStatusEnabled {
+		writeBanned()
+		return true
+	}
+	c.Set("id", cache.Id)
+	c.Set("token_id", 0)
+	c.Set("token_name", exchange_key.TokenName)
+	c.Set("token_key", "")
+	c.Set("token_unlimited_quota", true)
+	c.Set("token_model_limit_enabled", false)
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, cache.Group)
+	common.SetContextKey(c, constant.ContextKeyExchangeKey, true)
+	cache.WriteContext(c)
+	return true
+}
+
 // TokenAuthReadOnly 宽松版本的令牌认证中间件，用于只读查询接口。
 // 只验证令牌 key 是否存在，不检查令牌状态、过期时间和额度。
 // 即使令牌已过期、已耗尽或已禁用，也允许访问。
@@ -290,6 +331,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
 			key = strings.TrimSpace(key[7:])
 		}
+		rawKey := key
 		key = strings.TrimPrefix(key, "sk-")
 		parts := strings.Split(key, "-")
 		key = parts[0]
@@ -297,6 +339,22 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		token, err := model.GetTokenByKey(key, false)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if setupExchangeKey(c, rawKey, func() {
+					c.JSON(http.StatusForbidden, gin.H{
+						"success": false,
+						"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
+					})
+					c.Abort()
+				}, func() {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"success": false,
+						"message": common.TranslateMessage(c, i18n.MsgDatabaseError),
+					})
+					c.Abort()
+				}) {
+					c.Next()
+					return
+				}
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"success": false,
 					"message": common.TranslateMessage(c, i18n.MsgTokenInvalid),
@@ -398,14 +456,11 @@ func TokenAuth() func(c *gin.Context) {
 			if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
 				key = strings.TrimSpace(key[7:])
 			}
-			key = strings.TrimPrefix(key, "sk-")
-			parts = strings.Split(key, "-")
-			key = parts[0]
-		} else {
-			key = strings.TrimPrefix(key, "sk-")
-			parts = strings.Split(key, "-")
-			key = parts[0]
 		}
+		rawKey := key
+		key = strings.TrimPrefix(key, "sk-")
+		parts = strings.Split(key, "-")
+		key = parts[0]
 		token, err := model.ValidateUserToken(key)
 		if token != nil {
 			id := c.GetInt("id")
@@ -418,10 +473,18 @@ func TokenAuth() func(c *gin.Context) {
 				common.SysLog("TokenAuth ValidateUserToken database error: " + err.Error())
 				abortWithOpenAiMessage(c, http.StatusInternalServerError,
 					common.TranslateMessage(c, i18n.MsgDatabaseError))
-			} else {
-				abortWithOpenAiMessage(c, http.StatusUnauthorized,
-					common.TranslateMessage(c, i18n.MsgTokenInvalid))
+				return
 			}
+			if token == nil && setupExchangeKey(c, rawKey, func() {
+				abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
+			}, func() {
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, common.TranslateMessage(c, i18n.MsgDatabaseError))
+			}) {
+				c.Next()
+				return
+			}
+			abortWithOpenAiMessage(c, http.StatusUnauthorized,
+				common.TranslateMessage(c, i18n.MsgTokenInvalid))
 			return
 		}
 

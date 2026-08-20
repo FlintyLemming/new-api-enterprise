@@ -5,7 +5,9 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/exchange_key"
 
 	"github.com/gin-gonic/gin"
 )
@@ -72,6 +74,22 @@ func SearchUserLogs(c *gin.Context) {
 }
 
 func GetLogByKey(c *gin.Context) {
+	if common.GetContextKeyBool(c, constant.ContextKeyExchangeKey) {
+		logs, err := model.GetLogsByUserIDAndTokenName(c.GetInt("id"), exchange_key.TokenName)
+		if err != nil {
+			c.JSON(200, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "",
+			"data":    logs,
+		})
+		return
+	}
 	tokenId := c.GetInt("token_id")
 	if tokenId == 0 {
 		c.JSON(200, gin.H{
