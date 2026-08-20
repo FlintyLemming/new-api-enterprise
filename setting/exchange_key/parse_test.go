@@ -51,6 +51,14 @@ func TestParseExchangeKeyRejectsNonExchangeShapes(t *testing.T) {
 	}
 }
 
+func TestParseExchangeKeyRejectsInvalidUTF8Username(t *testing.T) {
+	raw := "sk-" + string([]byte{0xff}) + "-4a5727f69871ef400b44edf149bcfc6c9145155726e2f1653617e74ac5c5e655"
+
+	_, _, ok := ParseExchangeKey(raw)
+
+	assert.False(t, ok)
+}
+
 func TestParseExchangeKeyDoesNotTrimUsername(t *testing.T) {
 	_, _, ok := ParseExchangeKey("sk- alice-4a5727f69871ef400b44edf149bcfc6c9145155726e2f1653617e74ac5c5e655")
 	assert.True(t, ok)

@@ -23,6 +23,9 @@ func ParseExchangeKey(raw string) (username string, mac []byte, ok bool) {
 	}
 	username = trimmed[:idx]
 	suffix := trimmed[idx+1:]
+	if !utf8.ValidString(username) {
+		return "", nil, false
+	}
 	if utf8.RuneCountInString(username) < 1 || utf8.RuneCountInString(username) > maxUsernameRunes {
 		return "", nil, false
 	}
