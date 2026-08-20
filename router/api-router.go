@@ -195,6 +195,8 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.GET("/langfuse", controller.GetLangfuseSetting)
 			optionRoute.PUT("/langfuse", controller.UpdateLangfuseSetting)
+			optionRoute.GET("/exchange-key", controller.GetExchangeKeySetting)
+			optionRoute.PUT("/exchange-key", controller.UpdateExchangeKeySetting)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)

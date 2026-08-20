@@ -504,6 +504,18 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+func GetUserIDByUsername(username string) (int, error) {
+	if username == "" {
+		return 0, gorm.ErrRecordNotFound
+	}
+	var user User
+	err := DB.Select("id").Where("username = ?", username).First(&user).Error
+	if err != nil {
+		return 0, err
+	}
+	return user.Id, nil
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")

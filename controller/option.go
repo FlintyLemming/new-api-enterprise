@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
+	"github.com/QuantumNous/new-api/setting/exchange_key"
 	"github.com/QuantumNous/new-api/setting/langfuse_setting"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -37,6 +38,10 @@ func isPaymentComplianceOptionKey(key string) bool {
 
 func isLangfuseOptionKey(key string) bool {
 	return strings.HasPrefix(key, langfuse_setting.OptionKeyPrefix)
+}
+
+func isExchangeKeyOptionKey(key string) bool {
+	return strings.HasPrefix(key, exchange_key.OptionKeyPrefix)
 }
 
 func isPositiveOptionValue(value string) bool {
@@ -91,6 +96,9 @@ func GetOptions(c *gin.Context) {
 		}
 		// Langfuse 配置只经专用接口读取，避免通用读取暴露密钥或形成第二套配置契约。
 		if isLangfuseOptionKey(k) {
+			continue
+		}
+		if isExchangeKeyOptionKey(k) {
 			continue
 		}
 		value := common.Interface2String(v)
@@ -166,6 +174,13 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
 				"message": "Langfuse 配置请使用专用设置接口 /api/option/langfuse",
+			})
+			return
+		}
+		if isExchangeKeyOptionKey(option.Key) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"message": "Exchange Key 配置请使用专用设置接口 /api/option/exchange-key",
 			})
 			return
 		}
