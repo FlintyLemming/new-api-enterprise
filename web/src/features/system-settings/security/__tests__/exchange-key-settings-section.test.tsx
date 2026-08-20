@@ -184,6 +184,27 @@ function findSwitch(labelText: string): HTMLElement {
   return control
 }
 
+function findCheckbox(labelText: string): HTMLElement {
+  const control =
+    findFormItem(labelText).querySelector<HTMLElement>('[role="checkbox"]')
+  assert.ok(control, `Expected a checkbox for "${labelText}"`)
+  return control
+}
+
+async function changeInput(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      domWindow.HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(valueSetter)
+    valueSetter.call(input, value)
+    input.dispatchEvent(
+      new domWindow.Event('input', { bubbles: true }) as unknown as Event
+    )
+  })
+}
+
 function findSaveButton(): HTMLButtonElement {
   const button = [
     ...document.querySelectorAll<HTMLButtonElement>('button'),
@@ -260,5 +281,64 @@ describe('Exchange Key settings section', () => {
       ),
       'expected the environment enable lock to be reported'
     )
+  })
+
+  test('resets the clear-secret flag after a successful save so a new secret can be stored', async () => {
+    const saved = await renderSection({
+      enabled: false,
+      secret_configured: true,
+      secret_from_env: false,
+      enabled_from_env: false,
+    })
+
+    await act(async () => findCheckbox('Clear the stored secret key').click())
+    await act(async () => findSaveButton().click())
+    await waitForCondition(
+      () => saved.length === 1,
+      'the clear update was not sent'
+    )
+
+    assert.deepEqual(saved[0], {
+      enabled: false,
+      secret_key: '',
+      secret_key_clear: true,
+    })
+
+    const clearedView: ExchangeKeyView = {
+      enabled: false,
+      secret_configured: false,
+      secret_from_env: false,
+      enabled_from_env: false,
+    }
+    installApiFixtures(clearedView, saved)
+    await act(async () => {
+      rendered?.queryClient.setQueryData(
+        EXCHANGE_KEY_SETTINGS_QUERY_KEY,
+        clearedView,
+        { updatedAt: Date.now() + 60_000 }
+      )
+    })
+
+    const newSecret = 'sixteen-char-key'
+    await act(async () => findSwitch('Enable Exchange Key').click())
+    await changeInput(findInput('Shared secret'), newSecret)
+    await act(async () => findSaveButton().click())
+
+    assert.ok(
+      !document.body.textContent?.includes(
+        'Disable Exchange Key before clearing the secret'
+      ),
+      'expected the leftover clear flag not to block enabling with a new secret'
+    )
+    await waitForCondition(
+      () => saved.length === 2,
+      'the enable update was not sent'
+    )
+
+    assert.deepEqual(saved[1], {
+      enabled: true,
+      secret_key: newSecret,
+      secret_key_clear: false,
+    })
   })
 })

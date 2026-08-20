@@ -99,6 +99,11 @@ export function ExchangeKeySettingsSection() {
     mutationFn: updateExchangeKeySettings,
     onSuccess: () => {
       toast.success(t('Setting updated successfully'))
+      form.reset({
+        enabled: form.getValues('enabled'),
+        secret_key: '',
+        secret_key_clear: false,
+      })
       queryClient.invalidateQueries({
         queryKey: EXCHANGE_KEY_SETTINGS_QUERY_KEY,
       })
