@@ -22,6 +22,7 @@ import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
 import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { ExchangeKeySettingsSection } from './exchange-key-settings-section'
 
 const SECURITY_SECTIONS = [
   {
@@ -89,6 +90,11 @@ const SECURITY_SECTIONS = [
         }}
       />
     ),
+  },
+  {
+    id: 'exchange-key',
+    titleKey: 'Exchange Key',
+    build: () => <ExchangeKeySettingsSection />,
   },
 ] as const
 
