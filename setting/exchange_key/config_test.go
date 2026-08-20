@@ -66,6 +66,24 @@ func TestApplyUpdateRejectsShortSecretAndEnvLocks(t *testing.T) {
 	require.ErrorIs(t, err, ErrSecretLockedByEnv)
 }
 
+func TestApplyUpdateRejectsSecretShorterThanMinLength(t *testing.T) {
+	t.Setenv(EnvEnabled, "")
+	t.Setenv(EnvSecret, "")
+	_, err := ApplyUpdate(Setting{Enabled: false, Secret: ""}, UpdateRequest{SecretKey: "123456789012345"})
+	require.ErrorIs(t, err, ErrSecretTooShort)
+}
+
+func TestEffectiveShortStoredSecretTreatedAsEmpty(t *testing.T) {
+	ReplaceStoredForTest(t, Setting{Enabled: true, Secret: "123456789012345"})
+	t.Setenv(EnvEnabled, "")
+	t.Setenv(EnvSecret, "")
+
+	got := Effective()
+	assert.Equal(t, "", got.Secret)
+	assert.False(t, got.SecretConfigured)
+	assert.False(t, IsEffective())
+}
+
 func TestApplyUpdateClearRequiresDisabled(t *testing.T) {
 	t.Setenv(EnvEnabled, "")
 	t.Setenv(EnvSecret, "")

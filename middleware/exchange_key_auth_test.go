@@ -35,6 +35,8 @@ type exchangeKeyAuthBody struct {
 
 func setupExchangeKeyAuthTest(t *testing.T) {
 	t.Helper()
+	t.Setenv(exchange_key.EnvEnabled, "")
+	t.Setenv(exchange_key.EnvSecret, "")
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
 	previousType := common.MainDatabaseType()
