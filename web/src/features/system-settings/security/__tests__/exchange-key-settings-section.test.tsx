@@ -215,6 +215,14 @@ function findSaveButton(): HTMLButtonElement {
   return button
 }
 
+function findGenerateButton(): HTMLButtonElement {
+  const button = [
+    ...document.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((candidate) => candidate.textContent?.trim() === 'Generate')
+  assert.ok(button, 'Expected the generate button')
+  return button
+}
+
 function isDisabledControl(element: HTMLElement): boolean {
   return (
     element.getAttribute('aria-disabled') === 'true' ||
@@ -240,6 +248,59 @@ after(() => {
 })
 
 describe('Exchange Key settings section', () => {
+  test('shows how to construct and send an exchange key', async () => {
+    await renderSection(configuredView)
+
+    const text = document.body.textContent ?? ''
+    assert.ok(text.includes('How to call'), 'expected the usage heading')
+    assert.ok(
+      text.includes('Authorization: Bearer sk-<username>-<hmac>'),
+      'expected the request header template'
+    )
+    assert.ok(
+      text.includes('HMAC-SHA256(secret, username)'),
+      'expected the HMAC formula'
+    )
+    assert.ok(
+      text.includes('exchange-key'),
+      'expected the usage-log token name'
+    )
+  })
+
+  test('fills a visible random secret when Generate is clicked', async () => {
+    const saved = await renderSection(configuredView)
+
+    await act(async () => findGenerateButton().click())
+
+    const input = findInput('Shared secret')
+    const generated = input.value
+    assert.equal(input.type, 'text')
+    assert.match(generated, /^[0-9A-Za-z]{32}$/)
+    assert.ok(
+      document.body.textContent?.includes(
+        'Copy this secret now. After saving it will not be shown again.'
+      ),
+      'expected a reminder to copy the generated secret'
+    )
+
+    await act(async () => findSaveButton().click())
+    await waitForCondition(() => saved.length === 1, 'the update was not sent')
+    assert.deepEqual(saved[0], {
+      enabled: true,
+      secret_key: generated,
+      secret_key_clear: false,
+    })
+  })
+
+  test('disables Generate when the secret is locked by the environment', async () => {
+    await renderSection({
+      ...configuredView,
+      secret_from_env: true,
+    })
+
+    assert.equal(findGenerateButton().disabled, true)
+  })
+
   test('disables the secret input when the secret is locked by the environment', async () => {
     await renderSection({
       ...configuredView,

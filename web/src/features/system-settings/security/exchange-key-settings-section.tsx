@@ -18,13 +18,16 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { RefreshCw } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { CopyButton } from '@/components/copy-button'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
@@ -37,6 +40,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
 
 import {
   SettingsForm,
@@ -56,6 +60,8 @@ import {
   exchangeKeyFormSchema,
   type ExchangeKeyFormValues,
 } from './exchange-key-schema'
+import { generateExchangeKeySecret } from './exchange-key-secret'
+import { ExchangeKeyUsageGuide } from './exchange-key-usage-guide'
 
 const disabledView: ExchangeKeySettingsView = {
   enabled: false,
@@ -77,6 +83,7 @@ function buildFormDefaults(
 export function ExchangeKeySettingsSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const [secretRevealed, setSecretRevealed] = useState(false)
 
   const settingsQuery = useQuery({
     queryKey: EXCHANGE_KEY_SETTINGS_QUERY_KEY,
@@ -99,6 +106,7 @@ export function ExchangeKeySettingsSection() {
     mutationFn: updateExchangeKeySettings,
     onSuccess: () => {
       toast.success(t('Setting updated successfully'))
+      setSecretRevealed(false)
       form.reset({
         enabled: form.getValues('enabled'),
         secret_key: '',
@@ -188,7 +196,7 @@ export function ExchangeKeySettingsSection() {
             control={form.control}
             name='secret_key'
             render={({ field }) => (
-              <FormItem>
+              <FormItem data-settings-form-span='full'>
                 <FormLabel className='flex items-center gap-2'>
                   {t('Shared secret')}
                   <Badge
@@ -202,17 +210,48 @@ export function ExchangeKeySettingsSection() {
                   </Badge>
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    type='password'
-                    autoComplete='new-password'
-                    disabled={persisted.secret_from_env}
-                    {...field}
-                  />
+                  <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                    <Input
+                      type={secretRevealed ? 'text' : 'password'}
+                      autoComplete='new-password'
+                      spellCheck={false}
+                      disabled={persisted.secret_from_env}
+                      className={cn(
+                        'min-w-0 flex-1',
+                        secretRevealed && 'font-mono text-xs'
+                      )}
+                      {...field}
+                    />
+                    <Button
+                      type='button'
+                      variant='outline'
+                      disabled={persisted.secret_from_env}
+                      onClick={() => {
+                        field.onChange(generateExchangeKeySecret())
+                        form.setValue('secret_key_clear', false)
+                        setSecretRevealed(true)
+                      }}
+                    >
+                      <RefreshCw aria-hidden='true' />
+                      {t('Generate')}
+                    </Button>
+                    {secretRevealed && field.value ? (
+                      <CopyButton
+                        value={field.value}
+                        tooltip={t('Copy secret')}
+                        aria-label={t('Copy secret')}
+                      />
+                    ) : null}
+                  </div>
                 </FormControl>
                 <FormDescription>
-                  {t(
-                    'Leave empty to keep the stored secret. The secret is never sent back to this page.'
-                  )}
+                  {secretRevealed
+                    ? t(
+                        'Copy this secret now. After saving it will not be shown again.'
+                      )
+                    : t(
+                        'Leave empty to keep the stored secret. The secret is never sent back to this page.'
+                      )}
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -238,6 +277,8 @@ export function ExchangeKeySettingsSection() {
               )}
             />
           )}
+
+          <ExchangeKeyUsageGuide />
         </SettingsForm>
       </Form>
     </SettingsSection>

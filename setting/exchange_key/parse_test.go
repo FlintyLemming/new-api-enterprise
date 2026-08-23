@@ -11,6 +11,10 @@ import (
 
 const testSecret = "test-secret-16ch"
 
+func TestTokenNameIsTheLogDisplayName(t *testing.T) {
+	assert.Equal(t, "exchange-key", TokenName)
+}
+
 func TestParseExchangeKeyAcceptsUsernameAndHexSuffix(t *testing.T) {
 	mac, err := hex.DecodeString("4a5727f69871ef400b44edf149bcfc6c9145155726e2f1653617e74ac5c5e655")
 	require.NoError(t, err)

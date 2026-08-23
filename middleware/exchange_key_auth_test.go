@@ -144,6 +144,7 @@ func TestExchangeKeyAuthValidSetsVirtualContext(t *testing.T) {
 	body := decodeExchangeKeyAuthBody(t, response)
 	assert.Equal(t, user.Id, body.ID)
 	assert.Equal(t, 0, body.TokenID)
+	assert.Equal(t, "exchange-key", body.TokenName)
 	assert.Equal(t, exchange_key.TokenName, body.TokenName)
 	assert.Equal(t, "", body.TokenKey)
 	assert.True(t, body.Exchange)
