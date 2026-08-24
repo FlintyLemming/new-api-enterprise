@@ -5377,6 +5377,19 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests": "0 = theo cài đặt chung, -1 = miễn giới hạn cho người dùng này, số dương = số IP máy khách khác nhau tối đa được phép cho các yêu cầu API",
+    "Active IP window": "Khoảng thời gian IP hoạt động",
+    "Active IPs reset": "Đã đặt lại các IP hoạt động",
+    "Concurrent IP limit": "Giới hạn IP đồng thời",
+    "Each line must be a valid IP address or CIDR block": "Mỗi dòng phải là một địa chỉ IP hoặc khối CIDR hợp lệ",
+    "Failed to reset active IPs": "Không thể đặt lại các IP hoạt động",
+    "How long a client IP stays counted after its last request": "Thời gian một IP máy khách tiếp tục được tính sau yêu cầu cuối cùng",
+    "IP whitelist (never counted)": "Danh sách trắng IP (không bao giờ được tính)",
+    "IPs": "IP",
+    "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.": "Các địa chỉ IP và khối CIDR không bao giờ được tính vào giới hạn IP đồng thời của mỗi người dùng. Một mục trên mỗi dòng.",
+    "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.": "Số lượng IP máy khách khác nhau tối đa mà một người dùng có thể sử dụng cùng lúc cho các yêu cầu API. 0 = tắt.",
+    "Reset Active IPs": "Đặt lại IP hoạt động",
+    "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.": "Đặt lại các IP máy khách hoạt động đã ghi cho {{username}}? Khoảng IP đồng thời của họ sẽ bắt đầu lại từ đầu."
   }
 }

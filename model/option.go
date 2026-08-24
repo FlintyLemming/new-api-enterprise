@@ -161,6 +161,9 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
+	common.OptionMap["UserIPCountLimit"] = strconv.Itoa(setting.UserIPCountLimit)
+	common.OptionMap["UserIPWindowMinutes"] = strconv.Itoa(setting.UserIPWindowMinutes)
+	common.OptionMap["UserIPWhitelist"] = setting.UserIPWhitelistRaw()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
 	common.OptionMap["CacheRatio"] = ratio_setting.CacheRatio2JSONString()
@@ -233,6 +236,12 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
+	}
+	if key == "UserIPCountLimit" {
+		return setting.ValidateUserIPCountLimit(value)
+	}
+	if key == "UserIPWhitelist" {
+		return setting.ValidateUserIPWhitelist(value)
 	}
 	return nil
 }
@@ -567,6 +576,12 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
+	case "UserIPCountLimit":
+		setting.UserIPCountLimit, _ = strconv.Atoi(value)
+	case "UserIPWindowMinutes":
+		setting.UserIPWindowMinutes, _ = strconv.Atoi(value)
+	case "UserIPWhitelist":
+		err = setting.UpdateUserIPWhitelist(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
 	case "DataExportInterval":

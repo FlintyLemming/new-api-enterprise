@@ -5377,6 +5377,19 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests": "0 = グローバル設定に従う、-1 = このユーザーを制限から除外、正の整数 = API リクエストで許可される異なるクライアント IP の最大数",
+    "Active IP window": "アクティブ IP ウィンドウ",
+    "Active IPs reset": "アクティブ IP をリセットしました",
+    "Concurrent IP limit": "同時接続 IP 数制限",
+    "Each line must be a valid IP address or CIDR block": "各行は有効な IP アドレスまたは CIDR ブロックである必要があります",
+    "Failed to reset active IPs": "アクティブ IP のリセットに失敗しました",
+    "How long a client IP stays counted after its last request": "クライアント IP が最後のリクエスト後にカウントされ続ける時間",
+    "IP whitelist (never counted)": "IP ホワイトリスト（カウント対象外）",
+    "IPs": "IP",
+    "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.": "ユーザーごとの同時接続 IP 数制限にカウントされない IP アドレスと CIDR ブロック。1 行に 1 つ。",
+    "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.": "ユーザーが API リクエストで同時に使用できる異なるクライアント IP の最大数。0 = 無制限。",
+    "Reset Active IPs": "アクティブ IP をリセット",
+    "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.": "{{username}} の記録済みアクティブクライアント IP をリセットしますか？同時接続 IP ウィンドウはゼロから再カウントされます。"
   }
 }

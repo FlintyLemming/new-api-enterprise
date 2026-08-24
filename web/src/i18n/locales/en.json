@@ -5377,6 +5377,19 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests": "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests",
+    "Active IP window": "Active IP window",
+    "Active IPs reset": "Active IPs reset",
+    "Concurrent IP limit": "Concurrent IP limit",
+    "Each line must be a valid IP address or CIDR block": "Each line must be a valid IP address or CIDR block",
+    "Failed to reset active IPs": "Failed to reset active IPs",
+    "How long a client IP stays counted after its last request": "How long a client IP stays counted after its last request",
+    "IP whitelist (never counted)": "IP whitelist (never counted)",
+    "IPs": "IPs",
+    "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.": "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.",
+    "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.": "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.",
+    "Reset Active IPs": "Reset Active IPs",
+    "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.": "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh."
   }
 }

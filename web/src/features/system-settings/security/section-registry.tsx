@@ -38,6 +38,9 @@ const SECURITY_SECTIONS = [
           ModelRequestRateLimitDurationMinutes:
             settings.ModelRequestRateLimitDurationMinutes,
           ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
+          UserIPCountLimit: settings.UserIPCountLimit,
+          UserIPWindowMinutes: settings.UserIPWindowMinutes,
+          UserIPWhitelist: settings.UserIPWhitelist,
         }}
       />
     ),

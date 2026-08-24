@@ -447,6 +447,38 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name='concurrent_ip_limit'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Concurrent IP limit')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            min={-1}
+                            step={1}
+                            {...field}
+                            value={field.value ?? 0}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === ''
+                                  ? 0
+                                  : parseInt(e.target.value) || 0
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            '0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </SideDrawerSection>
               )}
 

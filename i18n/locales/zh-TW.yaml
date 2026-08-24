@@ -109,6 +109,7 @@ user.telegram_id_empty: "Telegram id 為空！"
 user.telegram_not_bound: "該 Telegram 帳號未綁定"
 user.linux_do_id_empty: "Linux DO id 為空！"
 user.quota_change_zero: "額度變更量不能為0"
+user.ip_limit_reached: "您已達到同時使用的 IP 數量上限：最多允許 {{.Max}} 個不同的用戶端 IP"
 
 # Quota messages
 quota.negative: "額度不能為負數！"

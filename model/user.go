@@ -106,6 +106,10 @@ type User struct {
 	Setting          string                     `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	StripeCustomer   string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+	// ConcurrentIpLimit overrides the site-wide per-user concurrent IP cap for
+	// relay API requests. 0 follows the global setting, a positive value overrides
+	// it, and -1 exempts the user from the limit entirely.
+	ConcurrentIpLimit int                        `json:"concurrent_ip_limit" gorm:"default:0;column:concurrent_ip_limit"`
 	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
@@ -114,16 +118,17 @@ type User struct {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:                user.Id,
+		Group:             user.Group,
+		Quota:             user.Quota,
+		Status:            user.Status,
+		Role:              user.Role,
+		Username:          user.Username,
+		Setting:           user.Setting,
+		Email:             user.Email,
+		AuthVersion:       user.AuthVersion,
+		ConcurrentIpLimit: user.ConcurrentIpLimit,
+		CacheSchema:       userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -850,10 +855,11 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 
 	newUser := *user
 	updates := map[string]interface{}{
-		"username":     newUser.Username,
-		"display_name": newUser.DisplayName,
-		"group":        newUser.Group,
-		"remark":       newUser.Remark,
+		"username":            newUser.Username,
+		"display_name":        newUser.DisplayName,
+		"group":               newUser.Group,
+		"remark":              newUser.Remark,
+		"concurrent_ip_limit": newUser.ConcurrentIpLimit,
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password

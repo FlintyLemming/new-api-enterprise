@@ -55,6 +55,12 @@ const (
 
 	ContextKeyExchangeKey ContextKey = "exchange_key"
 
+	// ContextKeyUserConcurrentIpLimit carries the per-user concurrent IP
+	// override read from the database on token-auth fallback paths. The relay
+	// IP limiter prefers this value over the value written into the gin
+	// context by WriteContext.
+	ContextKeyUserConcurrentIpLimit ContextKey = "user_concurrent_ip_limit"
+
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 
 	ContextKeySystemPromptOverride ContextKey = "system_prompt_override"

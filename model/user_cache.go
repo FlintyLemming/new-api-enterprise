@@ -11,19 +11,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const userCacheSchemaVersion = 2
+const userCacheSchemaVersion = 3
 
 type UserBase struct {
-	Id          int    `json:"id"`
-	Group       string `json:"group"`
-	Email       string `json:"email"`
-	Quota       int    `json:"quota"`
-	Status      int    `json:"status"`
-	Role        int    `json:"role"`
-	Username    string `json:"username"`
-	Setting     string `json:"setting"`
-	AuthVersion int64  `json:"-"`
-	CacheSchema int    `json:"-"`
+	Id                int    `json:"id"`
+	Group             string `json:"group"`
+	Email             string `json:"email"`
+	Quota             int    `json:"quota"`
+	Status            int    `json:"status"`
+	Role              int    `json:"role"`
+	Username          string `json:"username"`
+	Setting           string `json:"setting"`
+	ConcurrentIpLimit int    `json:"concurrent_ip_limit"`
+	AuthVersion       int64  `json:"-"`
+	CacheSchema       int    `json:"-"`
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
@@ -33,6 +34,7 @@ func (user *UserBase) WriteContext(c *gin.Context) {
 	common.SetContextKey(c, constant.ContextKeyUserEmail, user.Email)
 	common.SetContextKey(c, constant.ContextKeyUserName, user.Username)
 	common.SetContextKey(c, constant.ContextKeyUserSetting, user.GetSetting())
+	common.SetContextKey(c, constant.ContextKeyUserConcurrentIpLimit, user.ConcurrentIpLimit)
 }
 
 func (user *UserBase) GetSetting() dto.UserSetting {

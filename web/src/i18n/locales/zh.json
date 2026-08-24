@@ -5377,6 +5377,19 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests": "0 = 跟随全局设置，-1 = 该用户不受限制，正数 = API 请求允许的不同客户端 IP 数量上限",
+    "Active IP window": "IP 活跃窗口",
+    "Active IPs reset": "活跃 IP 记录已重置",
+    "Concurrent IP limit": "并发 IP 数限制",
+    "Each line must be a valid IP address or CIDR block": "每一行必须是有效的 IP 地址或 CIDR 网段",
+    "Failed to reset active IPs": "重置活跃 IP 记录失败",
+    "How long a client IP stays counted after its last request": "客户端 IP 在最后一次请求后保持计入的时长",
+    "IP whitelist (never counted)": "IP 白名单（不计入限制）",
+    "IPs": "个",
+    "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.": "永远不计入用户并发 IP 数限制的 IP 地址和网段（CIDR），每行一个。",
+    "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.": "单个用户在 API 请求中可同时使用的不同客户端 IP 数量上限，0 表示不限制。",
+    "Reset Active IPs": "重置活跃 IP",
+    "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.": "要重置 {{username}} 已记录的活跃客户端 IP 吗？其并发 IP 窗口将重新开始计数。"
   }
 }

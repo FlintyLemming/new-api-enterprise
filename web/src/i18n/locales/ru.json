@@ -5377,6 +5377,19 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests": "0 = следовать глобальной настройке, -1 = исключить этого пользователя, положительное число = максимум различных клиентских IP для API-запросов",
+    "Active IP window": "Окно активности IP",
+    "Active IPs reset": "Активные IP сброшены",
+    "Concurrent IP limit": "Лимит одновременных IP",
+    "Each line must be a valid IP address or CIDR block": "Каждая строка должна быть корректным IP-адресом или CIDR-блоком",
+    "Failed to reset active IPs": "Не удалось сбросить активные IP",
+    "How long a client IP stays counted after its last request": "Как долго клиентский IP остаётся учтённым после последнего запроса",
+    "IP whitelist (never counted)": "Белый список IP (не учитывается)",
+    "IPs": "IP",
+    "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.": "IP-адреса и CIDR-блоки, которые никогда не учитываются в лимите одновременных IP пользователя. Одна запись на строку.",
+    "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.": "Максимальное количество различных клиентских IP, которые пользователь может одновременно использовать для API-запросов. 0 = отключено.",
+    "Reset Active IPs": "Сбросить активные IP",
+    "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.": "Сбросить записанные активные клиентские IP пользователя {{username}}? Его окно одновременных IP начнёт отсчёт заново."
   }
 }

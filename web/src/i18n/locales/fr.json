@@ -5377,6 +5377,19 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "0 = follow the global setting, -1 = exempt this user, positive number = maximum distinct client IPs allowed for API requests": "0 = suivre le réglage global, -1 = exempter cet utilisateur, nombre positif = nombre maximal d'IP client distinctes autorisées pour les requêtes API",
+    "Active IP window": "Fenêtre d'activité IP",
+    "Active IPs reset": "IP actives réinitialisées",
+    "Concurrent IP limit": "Limite d'IP simultanées",
+    "Each line must be a valid IP address or CIDR block": "Chaque ligne doit être une adresse IP ou un bloc CIDR valide",
+    "Failed to reset active IPs": "Échec de la réinitialisation des IP actives",
+    "How long a client IP stays counted after its last request": "Durée pendant laquelle une IP client reste comptée après sa dernière requête",
+    "IP whitelist (never counted)": "Liste blanche IP (jamais comptée)",
+    "IPs": "IP",
+    "IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.": "Adresses IP et blocs CIDR jamais comptés dans la limite d'IP simultanées par utilisateur. Une entrée par ligne.",
+    "Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.": "Nombre maximal d'adresses IP client distinctes qu'un utilisateur peut utiliser simultanément pour les requêtes API. 0 = désactivé.",
+    "Reset Active IPs": "Réinitialiser les IP actives",
+    "Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.": "Réinitialiser les IP client actives enregistrées pour {{username}} ? Sa fenêtre d'IP simultanées repart de zéro."
   }
 }

@@ -28,6 +28,7 @@ import {
   ShieldAlert,
   Link2,
   CreditCard,
+  Globe,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -48,7 +49,7 @@ import {
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 
-import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
+import { manageUser, resetUserPasskey, resetUserTwoFA, resetUserIpLimit } from '../api'
 import {
   USER_STATUS,
   USER_ROLE,
@@ -70,6 +71,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
+  const [resetIpLimitOpen, setResetIpLimitOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
 
@@ -128,6 +130,22 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetTwoFAOpen(false)
+    }
+  }
+
+  const handleResetIpLimit = async () => {
+    try {
+      const result = await resetUserIpLimit(user.id)
+      if (result.success) {
+        toast.success(t('Active IPs reset'))
+        triggerRefresh()
+      } else {
+        toast.error(result.message || t('Failed to reset active IPs'))
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setResetIpLimitOpen(false)
     }
   }
 
@@ -250,6 +268,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            setResetIpLimitOpen(true)
+          }}
+        >
+          {t('Reset Active IPs')}
+          <DropdownMenuShortcut>
+            <Globe size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -286,6 +316,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         )}
         confirmText={t('Reset 2FA')}
         handleConfirm={handleResetTwoFA}
+      />
+
+      <ConfirmDialog
+        open={resetIpLimitOpen}
+        onOpenChange={setResetIpLimitOpen}
+        title={t('Reset Active IPs')}
+        desc={t(
+          'Reset the recorded active client IPs for {{username}}? Their concurrent IP window starts fresh.',
+          { username: user.username }
+        )}
+        confirmText={t('Reset Active IPs')}
+        handleConfirm={handleResetIpLimit}
       />
 
       <UserBindingDialog

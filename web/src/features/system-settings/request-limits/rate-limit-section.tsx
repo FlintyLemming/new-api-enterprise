@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 
 import {
   SettingsForm,
@@ -66,6 +67,19 @@ const isValidJSON = (value: string | undefined) => {
   }
 }
 
+const isValidIPWhitelist = (value: string | undefined) => {
+  if (!value || value.trim() === '') return true
+  for (const line of value.split('\n')) {
+    const entry = line.replaceAll(/[\s,]/g, '')
+    if (!entry) continue
+    // Single IPv4/IPv6 or CIDR block.
+    const ipPattern = /^[0-9a-fA-F:.]+$/
+    const cidrPattern = /^[0-9a-fA-F:.]+\/\d+$/
+    if (!ipPattern.test(entry) && !cidrPattern.test(entry)) return false
+  }
+  return true
+}
+
 const createRateLimitSchema = (t: (key: string) => string) =>
   z.object({
     ModelRequestRateLimitEnabled: z.boolean(),
@@ -77,6 +91,14 @@ const createRateLimitSchema = (t: (key: string) => string) =>
       .optional()
       .refine(isValidJSON, {
         message: t('Invalid JSON format or values out of allowed range'),
+      }),
+    UserIPCountLimit: z.number().min(0).max(100000000),
+    UserIPWindowMinutes: z.number().min(1).max(100000000),
+    UserIPWhitelist: z
+      .string()
+      .optional()
+      .refine(isValidIPWhitelist, {
+        message: t('Each line must be a valid IP address or CIDR block'),
       }),
   })
 
@@ -313,6 +335,99 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                     </div>
                   </FormDescription>
                 )}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className='grid gap-4 md:grid-cols-3'>
+            <FormField
+              control={form.control}
+              name='UserIPCountLimit'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Concurrent IP limit')}</FormLabel>
+                  <FormControl>
+                    <div className='flex items-center gap-2'>
+                      <Input
+                        type='number'
+                        min={0}
+                        max={100000000}
+                        step={1}
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(parseInt(e.target.value) || 0)
+                        }
+                      />
+                      <span className='text-muted-foreground text-sm'>
+                        {t('IPs')}
+                      </span>
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Maximum number of distinct client IPs a user can use at the same time for API requests. 0 = disabled.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='UserIPWindowMinutes'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Active IP window')}</FormLabel>
+                  <FormControl>
+                    <div className='flex items-center gap-2'>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={100000000}
+                        step={1}
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(parseInt(e.target.value) || 10)
+                        }
+                      />
+                      <span className='text-muted-foreground text-sm'>
+                        {t('minutes')}
+                      </span>
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'How long a client IP stays counted after its last request'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <FormField
+            control={form.control}
+            name='UserIPWhitelist'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('IP whitelist (never counted)')}</FormLabel>
+                <FormControl>
+                  <Textarea
+                    {...field}
+                    value={field.value || ''}
+                    rows={4}
+                    placeholder={'10.0.0.0/8\n192.168.1.100\n2001:db8::/32'}
+                    aria-invalid={Boolean(form.formState.errors.UserIPWhitelist)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'IPs and CIDR blocks that never count toward the per-user concurrent IP limit. One entry per line.'
+                  )}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}

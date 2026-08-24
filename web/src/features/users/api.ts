@@ -155,6 +155,14 @@ export async function resetUserTwoFA(id: number): Promise<ApiResponse> {
 }
 
 /**
+ * Clear the user's recorded active client IPs (concurrent IP limit window)
+ */
+export async function resetUserIpLimit(id: number): Promise<ApiResponse> {
+  const res = await api.delete(`/api/user/${id}/ip_limit`)
+  return res.data
+}
+
+/**
  * Get all available groups
  */
 export async function getGroups(): Promise<ApiResponse<string[]>> {
