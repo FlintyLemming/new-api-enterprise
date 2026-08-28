@@ -49,6 +49,7 @@ import {
   parseLogOther,
   isViolationFeeLog,
   renderAuditContent,
+  resolveDurationSeconds,
 } from '../../lib/format'
 import {
   isDisplayableLogType,
@@ -627,9 +628,10 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const useTime = row.getValue('use_time') as number
         const other = parseLogOther(log.other)
+        const durationSec = resolveDurationSeconds(other?.duration_ms, useTime)
         const tokensPerSecond =
-          useTime > 0 && log.completion_tokens > 0
-            ? log.completion_tokens / useTime
+          durationSec > 0 && log.completion_tokens > 0
+            ? log.completion_tokens / durationSec
             : null
 
         return (
@@ -715,6 +717,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         return (
           <TimingMetricsCell
             useTimeSec={useTime}
+            durationMs={other?.duration_ms}
             completionTokens={log.completion_tokens}
             frtMs={other?.frt}
             isStream={log.is_stream}

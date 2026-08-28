@@ -33,7 +33,11 @@ import {
 import { formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { getFirstResponseTimeColor, getResponseTimeColor } from '../lib/format'
+import {
+  getFirstResponseTimeColor,
+  getResponseTimeColor,
+  resolveDurationSeconds,
+} from '../lib/format'
 import type { LogOtherData } from '../types'
 
 /**
@@ -52,6 +56,8 @@ const barColorMap: Record<StatusVariant, string> = {
 
 interface TimingMetricsCellProps {
   useTimeSec: number
+  /** Millisecond-precision duration from `other.duration_ms`; absent on legacy logs. */
+  durationMs?: number
   completionTokens: number
   frtMs?: number
   isStream: boolean
@@ -75,13 +81,14 @@ export function TimingMetricsCell(props: TimingMetricsCellProps) {
     firstTokenSeconds == null
       ? 'neutral'
       : getFirstResponseTimeColor(firstTokenSeconds)
+  const totalSeconds = resolveDurationSeconds(props.durationMs, props.useTimeSec)
   const totalTimeVariant = getResponseTimeColor(
-    props.useTimeSec,
+    totalSeconds,
     props.completionTokens
   )
   const firstTokenLabel =
     firstTokenSeconds == null ? t('N/A') : formatUseTime(firstTokenSeconds)
-  const totalTimeLabel = formatUseTime(props.useTimeSec)
+  const totalTimeLabel = formatUseTime(totalSeconds)
 
   const labels = (
     <div className='flex min-h-8 min-w-0 flex-col justify-center gap-0.5 text-xs leading-tight'>

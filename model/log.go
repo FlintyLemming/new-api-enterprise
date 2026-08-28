@@ -289,12 +289,18 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 	}
 }
 
-func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
+func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeMillis int64,
 	isStream bool, group string, other map[string]interface{}) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
+	if useTimeMillis > 0 {
+		if other == nil {
+			other = make(map[string]interface{})
+		}
+		other["duration_ms"] = useTimeMillis
+	}
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -316,7 +322,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		Quota:            0,
 		ChannelId:        channelId,
 		TokenId:          tokenId,
-		UseTime:          useTimeSeconds,
+		UseTime:          int(useTimeMillis / 1000),
 		IsStream:         isStream,
 		Group:            group,
 		Ip: func() string {
@@ -336,18 +342,22 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 }
 
 type RecordConsumeLogParams struct {
-	ChannelId        int                    `json:"channel_id"`
-	PromptTokens     int                    `json:"prompt_tokens"`
-	CompletionTokens int                    `json:"completion_tokens"`
-	ModelName        string                 `json:"model_name"`
-	TokenName        string                 `json:"token_name"`
-	Quota            int                    `json:"quota"`
-	Content          string                 `json:"content"`
-	TokenId          int                    `json:"token_id"`
-	UseTimeSeconds   int                    `json:"use_time_seconds"`
-	IsStream         bool                   `json:"is_stream"`
-	Group            string                 `json:"group"`
-	Other            map[string]interface{} `json:"other"`
+	ChannelId        int    `json:"channel_id"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	ModelName        string `json:"model_name"`
+	TokenName        string `json:"token_name"`
+	Quota            int    `json:"quota"`
+	Content          string `json:"content"`
+	TokenId          int    `json:"token_id"`
+	// UseTimeMillis is the request duration in milliseconds. The use_time
+	// column keeps truncated seconds for backward compatibility; the precise
+	// value is persisted under other.duration_ms for the timing UI. Zero
+	// means "unknown" (task/MJ billing paths) and writes no duration_ms key.
+	UseTimeMillis int64                  `json:"use_time_millis"`
+	IsStream      bool                   `json:"is_stream"`
+	Group         string                 `json:"group"`
+	Other         map[string]interface{} `json:"other"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
@@ -359,6 +369,12 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
+	if params.UseTimeMillis > 0 {
+		if params.Other == nil {
+			params.Other = make(map[string]interface{})
+		}
+		params.Other["duration_ms"] = params.UseTimeMillis
+	}
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -380,7 +396,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		Quota:            params.Quota,
 		ChannelId:        params.ChannelId,
 		TokenId:          params.TokenId,
-		UseTime:          params.UseTimeSeconds,
+		UseTime:          int(params.UseTimeMillis / 1000),
 		IsStream:         params.IsStream,
 		Group:            params.Group,
 		Ip: func() string {

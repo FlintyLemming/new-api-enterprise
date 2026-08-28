@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
-import { parseLogOther } from '../lib/format'
+import { parseLogOther, resolveDurationSeconds } from '../lib/format'
 import {
   getLogTypeConfig,
   isDisplayableLogType,
@@ -283,15 +283,17 @@ function MobileStreamTimingField({ log }: { log: UsageLog }) {
 
   const other = parseLogOther(log.other)
   const useTime = log.use_time || 0
+  const durationSec = resolveDurationSeconds(other?.duration_ms, useTime)
   const tokensPerSecond =
-    useTime > 0 && log.completion_tokens > 0
-      ? log.completion_tokens / useTime
+    durationSec > 0 && log.completion_tokens > 0
+      ? log.completion_tokens / durationSec
       : null
 
   return (
     <div className='bg-muted/20 flex min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5'>
       <TimingMetricsCell
         useTimeSec={useTime}
+        durationMs={other?.duration_ms}
         completionTokens={log.completion_tokens}
         frtMs={other?.frt}
         isStream={log.is_stream}

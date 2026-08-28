@@ -492,7 +492,6 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	quota, tieredResult := settleTestQuota(info, priceData, usage)
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()
-	consumedTime := float64(milliseconds) / 1000.0
 	other := buildTestLogOther(c, info, priceData, usage, tieredResult)
 	model.RecordConsumeLog(c, testUserID, model.RecordConsumeLogParams{
 		ChannelId:        channel.Id,
@@ -502,7 +501,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		TokenName:        "模型测试",
 		Quota:            quota,
 		Content:          "模型测试",
-		UseTimeSeconds:   int(consumedTime),
+		UseTimeMillis:    milliseconds,
 		IsStream:         info.IsStream,
 		Group:            info.UsingGroup,
 		Other:            other,
