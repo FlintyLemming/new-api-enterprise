@@ -175,7 +175,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		tieredResult = tieredRes
 	}
 
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	useTimeMillis := time.Now().UnixMilli() - relayInfo.StartTime.UnixMilli()
 	textInputTokens := usage.InputTokenDetails.TextTokens
 	textOutTokens := usage.OutputTokenDetails.TextTokens
 
@@ -258,7 +258,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		Quota:            quota,
 		Content:          logContent,
 		TokenId:          relayInfo.TokenId,
-		UseTimeSeconds:   int(useTimeSeconds),
+		UseTimeMillis:    useTimeMillis,
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
@@ -300,7 +300,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		tieredResult = tieredRes
 	}
 
-	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
+	useTimeMillis := time.Now().UnixMilli() - relayInfo.StartTime.UnixMilli()
 	textInputTokens := usage.PromptTokensDetails.TextTokens
 	textOutTokens := usage.CompletionTokenDetails.TextTokens
 
@@ -405,7 +405,7 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		Quota:            quota,
 		Content:          logContent,
 		TokenId:          relayInfo.TokenId,
-		UseTimeSeconds:   int(useTimeSeconds),
+		UseTimeMillis:    useTimeMillis,
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,

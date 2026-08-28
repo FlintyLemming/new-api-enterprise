@@ -198,6 +198,26 @@ export function getTimeColor(
 }
 
 /**
+ * Resolve a log's total duration in seconds. New logs carry millisecond
+ * precision in `other.duration_ms`; the `use_time` column is truncated
+ * seconds, so legacy logs (and non-relay paths without a duration) fall back
+ * to it.
+ */
+export function resolveDurationSeconds(
+  durationMs: number | undefined,
+  useTimeSec: number
+): number {
+  if (
+    durationMs != null &&
+    Number.isFinite(durationMs) &&
+    durationMs > 0
+  ) {
+    return durationMs / 1000
+  }
+  return useTimeSec
+}
+
+/**
  * Get first-response-token color based on latency (in seconds)
  */
 export function getFirstResponseTimeColor(

@@ -51,7 +51,7 @@ type textQuotaSummary struct {
 	AudioTokens           int
 	ModelName             string
 	TokenName             string
-	UseTimeSeconds        int64
+	UseTimeMillis         int64
 	CompletionRatio       float64
 	CacheRatio            float64
 	ImageRatio            float64
@@ -323,7 +323,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary := textQuotaSummary{
 		ModelName:            relayInfo.OriginModelName,
 		TokenName:            ctx.GetString("token_name"),
-		UseTimeSeconds:       time.Now().Unix() - relayInfo.StartTime.Unix(),
+		UseTimeMillis:        time.Now().UnixMilli() - relayInfo.StartTime.UnixMilli(),
 		CompletionRatio:      relayInfo.PriceData.CompletionRatio,
 		CacheRatio:           relayInfo.PriceData.CacheRatio,
 		ImageRatio:           relayInfo.PriceData.ImageRatio,
@@ -685,7 +685,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Quota:            summary.Quota,
 		Content:          logContent,
 		TokenId:          relayInfo.TokenId,
-		UseTimeSeconds:   int(summary.UseTimeSeconds),
+		UseTimeMillis:    summary.UseTimeMillis,
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,

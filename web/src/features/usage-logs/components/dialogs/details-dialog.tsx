@@ -74,6 +74,7 @@ import {
   isViolationFeeLog,
   getFirstResponseTimeColor,
   getResponseTimeColor,
+  resolveDurationSeconds,
   getReasoningEffortVariant,
   renderAuditContent,
 } from '../../lib/format'
@@ -497,6 +498,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
     !!other?.expr_b64
   const hasAudioTokens = other?.ws || other?.audio
   const showTiming = isTimingLogType(props.log.type)
+  const durationSeconds = resolveDurationSeconds(
+    other?.duration_ms,
+    props.log.use_time
+  )
   const showAdminIp =
     !!props.log.ip && (showTiming || (props.isAdmin && isTopup))
   const adminInfo = other?.admin_info
@@ -701,7 +706,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {showTiming && props.log.use_time > 0 && (
+          {showTiming && durationSeconds > 0 && (
             <DetailRow
               label={t('Response Time')}
               value={
@@ -710,13 +715,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
                     'font-medium',
                     timingTextColorClass(
                       getResponseTimeColor(
-                        props.log.use_time,
+                        durationSeconds,
                         props.log.completion_tokens
                       )
                     )
                   )}
                 >
-                  {formatUseTime(props.log.use_time)}
+                  {formatUseTime(durationSeconds)}
                   {props.log.is_stream &&
                     other?.frt != null &&
                     other.frt > 0 && (
