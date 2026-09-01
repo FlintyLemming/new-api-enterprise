@@ -4,7 +4,7 @@
 | -- | -- |
 | 分支 | `feat/strip-claude-system-prefix` |
 | 基线 | `internal-custom` @ `8eb884f4` |
-| 合入 commit | 未合入（本分支实施） |
+| 合入 commit | 线性合入（无 merge commit），tip `a5dfe631` |
 | 合入日期 | 2026-08-17 |
 | 状态 | `internal-only` |
 | 上游 PR | 未提交 |

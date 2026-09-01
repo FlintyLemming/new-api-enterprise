@@ -25,8 +25,14 @@
 
 | 分支 | 摘要 | 状态 | 上游 PR | 合入 commit | 合入日期 | 详情 |
 | -- | -- | -- | -- | -- | -- | -- |
+| —（backport） | 异步任务退款时同步减少 `used_quota` | `upstream-pending` | [#6795](https://github.com/QuantumNous/new-api/pull/6795) | `58d4e9bd` | 2026-08-13 | [详情](patches/backport-6795-async-task-refund-used-quota.md) |
 | `feat/anthropic-messages-cache-usage` | 渠道开关：Anthropic Messages 的 `input_tokens` 可扣除缓存 | `upstream-pending` | 未提交 | `4abaa43a9` | 2026-08-13 | [详情](patches/feat-anthropic-messages-cache-usage.md) |
-| `feature/langfuse-tracing` | 可选的 Langfuse OTLP 对话追踪导出（默认关闭） | `upstream-pending` | 未提交 | 未合入 | — | [详情](patches/feature-langfuse-tracing.md) |
+| `feature/langfuse-tracing` | 可选的 Langfuse OTLP 对话追踪导出（默认关闭） | `upstream-pending` | 未提交 | 线性合入，tip `8eb884f4` | 2026-08-16 | [详情](patches/feature-langfuse-tracing.md) |
+| `feat/strip-claude-system-prefix` | 渠道开关：Claude→非 Claude 转换时剥离 Claude Code 计费头，保住前缀缓存 | `internal-only` | 未提交 | 线性合入，tip `a5dfe631` | 2026-08-17 | [详情](patches/feat-strip-claude-system-prefix.md) |
+| `feat/exchange-key` | 内部应用用共享 SECRET 派生 per-user HMAC key 调 relay | `internal-only` | 未提交 | 线性合入，tip `e4d5ea76` | 2026-08-23 | [详情](patches/feat-exchange-key.md) |
+| `feature/user-concurrent-ip-limit` | 每用户滑动窗口内并发客户端 IP 数限制（含白名单与每用户覆盖） | `upstream-pending` | 未提交 | 线性合入，tip `7ddc7866` | 2026-08-24 | [详情](patches/feat-user-concurrent-ip-limit.md) |
+| `fix/oai-to-claude-tool-call-stream` | OAI→Claude 流式：finish chunk 保留 tool 参数、tool block start 去重 | `upstream-pending` | 未提交 | `527d6fca` | 2026-09-01 | [详情](patches/fix-oai-to-claude-tool-call-stream.md) |
+| `fix/log-duration-ms` | 日志总耗时毫秒精度：`other.duration_ms` + 前端回退 `use_time` | `upstream-pending` | 未提交 | `0da33748` | 2026-09-01 | [详情](patches/fix-log-duration-ms.md) |
 
 ## 已归档
 

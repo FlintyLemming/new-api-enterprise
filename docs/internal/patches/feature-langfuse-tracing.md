@@ -4,8 +4,8 @@
 | -- | -- |
 | 分支 | `feature/langfuse-tracing` |
 | 基线 | `origin/main` @ `58d4e9bd3` |
-| 合入 commit | 未合入（合入 `internal-custom` 后补） |
-| 合入日期 | — |
+| 合入 commit | 线性合入（无 merge commit），tip `8eb884f4` |
+| 合入日期 | 2026-08-16 |
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
