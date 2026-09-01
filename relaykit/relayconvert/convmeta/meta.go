@@ -60,6 +60,10 @@ type ClaudeConvertInfo struct {
 
 	ToolCallBaseIndex      int
 	ToolCallMaxIndexOffset int
+	// ToolCallStartSent records OpenAI tool-call offsets that already emitted
+	// content_block_start. GLM/vLLM continuation chunks re-send function.name;
+	// emitting another start resets Claude Code's input accumulator to {}.
+	ToolCallStartSent map[int]bool
 }
 
 const (
