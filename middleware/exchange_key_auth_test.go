@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/exchange_key"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -102,6 +104,10 @@ func createOrdinaryToken(t *testing.T, userID int, key string) *model.Token {
 }
 
 func writeExchangeKeyAuthContext(c *gin.Context) {
+	specificChannelID := ""
+	if pin, ok, _ := service.GetChannelConstraints(c).ResolvedPin(); ok {
+		specificChannelID = strconv.Itoa(pin.ChannelId)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":                  c.GetInt("id"),
 		"token_id":            c.GetInt("token_id"),
@@ -109,7 +115,7 @@ func writeExchangeKeyAuthContext(c *gin.Context) {
 		"token_key":           c.GetString("token_key"),
 		"exchange":            common.GetContextKeyBool(c, constant.ContextKeyExchangeKey),
 		"group":               common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
-		"specific_channel_id": c.GetString("specific_channel_id"),
+		"specific_channel_id": specificChannelID,
 	})
 }
 
