@@ -6,7 +6,7 @@
 | 基线 | `origin/main` @ 2026-08-12 前后（当时 tip 即 `58d4e9bd`，后被上游 rebase 移出 main） |
 | 合入 commit | `58d4e9bd` |
 | 合入日期 | 2026-08-13 |
-| 状态 | `upstream-pending` |
+| 状态 | `upstream-merged`（2026-09-01 归档） |
 | 上游 PR | [#6795](https://github.com/QuantumNous/new-api/pull/6795)（作者 wans10） |
 
 ## 为什么要这个改动
@@ -25,13 +25,7 @@
 
 ## 与上游的冲突风险
 
-这条就是上游 PR 本身，同步上游时先检查 `origin/main` 是否已含等价修复（PR 可能被 squash/rebase 成别的 SHA，按语义而不是 SHA 核对）：
-
-```bash
-git log --oneline origin/main -- service/task_billing.go
-```
-
-上游收编后直接取上游实现，本条归档。注意 `service/task_billing.go` 上游重构频繁（已有 `bc14c18f` 退款逻辑重写），核对语义时以「退款同时减 used_quota」为准。
+已收编。2026-09-01 同步到 v1.0.0-rc.30 时确认 `58d4e9bd3` 就在上游 main 历史中（即本次合并的 merge-base），语义与内部携带版本完全一致，无残留差异，条目移入已归档。
 
 ## 验证方式
 

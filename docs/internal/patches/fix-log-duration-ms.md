@@ -28,6 +28,8 @@
 
 `model/log.go` 的 `RecordConsumeLog` 签名变了，上游若在其它路径新增调用点，合并时会编译失败——这是好事，直接按新签名传毫秒即可。`service/quota.go` 计费结算区上游常改，确认计时起点没被上游重构挪走。前端 usage-logs 目录属内部重写区，冲突取内部实现。
 
+2026-09-01 同步 rc.30 实况：上游重构了移动端日志卡片（`usage-logs-mobile-card.tsx` 抽出 `task-mobile-layout`），合并取 import 并集即可，`resolveDurationSeconds` 回退逻辑位置不变；`duration.test.ts` 已随上游测试运行器切换从 `node:test` 转为 vitest 导入。
+
 ## 验证方式
 
 ```bash

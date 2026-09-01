@@ -82,8 +82,9 @@ New API 自身只留结构化消费日志，没有可回看的对话级追踪：
 - `relay/channel/*/` 的共享 `doRequest`：`BeginAttempt` 必须保持「`relayClient.Do` 前唯一一次」，
   上游若拆分该函数需要重新定位调用点，由 `TestAttemptHookHasExactlyOneCallSite` 兜底。
 - `service/text_quota.go` / 音频结算路径：上游改 usage 组装时要重新确认结算点快照仍在同一位置。
-- `relaykit/dto/channel_settings.go` 与前端渠道抽屉、七个 locale 文件属于机械冲突，取并集即可。
+- `relaykit/dto/channel_settings.go` 与前端渠道抽屉、七个 locale 文件属于机械冲突，取并集即可（rc.30 起该结构多了上游的 `task_plugin_key` 字段）。
 - `go.mod` 的 OpenTelemetry 依赖组（v1.44.0）已转 direct，上游若引入自己的 OTel 版本需要统一。
+- 2026-09-01 同步 rc.30 实况：上游把 web 测试运行器换成 vitest，本条目的四个前端测试文件已从 `node:test` 转为 vitest 导入。
 
 ## 验证方式
 

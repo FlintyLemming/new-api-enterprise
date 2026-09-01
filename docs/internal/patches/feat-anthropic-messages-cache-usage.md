@@ -34,7 +34,7 @@ OpenAI 兼容上游经常把缓存命中算进 `prompt_tokens`。经 New API 转
 
 `relaykit/relayconvert/internal/oai_chat/to_claude_messages_resp.go` 是上游活跃文件，usage 组装逻辑随时可能重构；`relaykit/dto/channel_settings.go` 的字段列表也常被上游追加。同步上游时优先保留内部实现，但要重新确认上游的 usage 组装顺序没有绕过这里的扣减。
 
-前端 `channel-mutate-drawer.tsx` 和七个 locale 文件属于机械冲突，取并集即可。
+前端 `channel-mutate-drawer.tsx` 和七个 locale 文件属于机械冲突，取并集即可（rc.30 起 `channel_settings.go`/`channel-form.ts` 多了上游的 `task_plugin_key` 字段）。
 
 ## 验证方式
 

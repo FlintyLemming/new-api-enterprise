@@ -25,7 +25,6 @@
 
 | 分支 | 摘要 | 状态 | 上游 PR | 合入 commit | 合入日期 | 详情 |
 | -- | -- | -- | -- | -- | -- | -- |
-| —（backport） | 异步任务退款时同步减少 `used_quota` | `upstream-pending` | [#6795](https://github.com/QuantumNous/new-api/pull/6795) | `58d4e9bd` | 2026-08-13 | [详情](patches/backport-6795-async-task-refund-used-quota.md) |
 | `feat/anthropic-messages-cache-usage` | 渠道开关：Anthropic Messages 的 `input_tokens` 可扣除缓存 | `upstream-pending` | 未提交 | `4abaa43a9` | 2026-08-13 | [详情](patches/feat-anthropic-messages-cache-usage.md) |
 | `feature/langfuse-tracing` | 可选的 Langfuse OTLP 对话追踪导出（默认关闭） | `upstream-pending` | 未提交 | 线性合入，tip `8eb884f4` | 2026-08-16 | [详情](patches/feature-langfuse-tracing.md) |
 | `feat/strip-claude-system-prefix` | 渠道开关：Claude→非 Claude 转换时剥离 Claude Code 计费头，保住前缀缓存 | `internal-only` | 未提交 | 线性合入，tip `a5dfe631` | 2026-08-17 | [详情](patches/feat-strip-claude-system-prefix.md) |
@@ -38,7 +37,7 @@
 
 | 分支 | 摘要 | 归档原因 | 归档日期 | 详情 |
 | -- | -- | -- | -- | -- |
-| — | — | — | — | — |
+| —（backport） | 异步任务退款时同步减少 `used_quota` | 上游已收编：同步 rc.30 时确认 `58d4e9bd3` 即合并 merge-base，语义一致无残留 | 2026-09-01 | [详情](patches/backport-6795-async-task-refund-used-quota.md) |
 
 ## 工作流
 

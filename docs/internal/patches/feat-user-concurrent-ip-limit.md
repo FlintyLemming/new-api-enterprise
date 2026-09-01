@@ -20,6 +20,7 @@
 - `model/user.go`、`model/user_cache.go`、`model/user_auth_cache.go` — 每用户覆盖列 `users.concurrent_ip_limit`：0 跟随全局，正数覆盖，-1 豁免；经 UserBase 缓存（schema v3）
 - `controller/user.go`、`router/api-router.go` — 管理端 `DELETE /api/user/:id/ip_limit`，清除某用户已记录的活动 IP
 - `router/relay-router.go`、`router/video-router.go` — 中间件挂到 relay 路由
+- `router/task-plugin-protocol-router.go`、`router/video-router.go` 的 `videoSharedRouter` — 2026-09-01 同步 rc.30 后补挂：上游 #7076 把内置任务 adaptor（/suno、/kling/v1、/jimeng、/v1/video/generations 提交路由）换成了沙箱 JS 插件系统，旧路由块已删除，`UserIpLimit()` 改挂到插件协议路由的五条 TokenAuth 链上
 - `web/src/features/system-settings/request-limits/rate-limit-section.tsx`、`web/src/features/users/**` — 安全限流设置区块与用户列表行操作/编辑抽屉里的每用户覆盖
 - 测试：`middleware/user_ip_limit_test.go`、`setting/user_ip_limit_test.go`
 
@@ -32,6 +33,8 @@
 ## 与上游的冲突风险
 
 `router/relay-router.go` 的中间件链和 `model/option.go`、`web` 设置页都是上游常改文件，属于机械冲突取并集。`model/user.go` 的列与 `user_auth_cache.go` 的缓存 schema 需确认上游没有同名列或自己的 schema version 递增（冲突时内部的 v3 要顺延）。
+
+2026-09-01 同步 rc.30 实况：上游 #6865 重构了 relay 路由文件、#7076 删除了内置任务路由（suno/kling/jimeng/video 提交口），任务提交改由 `pkg/jsplugin` 插件协议动态注册。今后同步时重点确认 `router/task-plugin-protocol-router.go` 的各条 TokenAuth 链仍带 `UserIpLimit()`，以及上游是否新增了不带它的任务类路由。
 
 ## 验证方式
 

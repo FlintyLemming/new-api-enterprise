@@ -38,6 +38,8 @@
 
 `middleware/auth.go` 的 TokenAuth 是上游高频改动区，合并时保留 exchange-key 分支并确认普通令牌路径语义没被上游改动带偏。`controller/option.go`、`model/option.go` 的键守卫是机械冲突，取并集。`service/quota.go` 计费路径上游也常动，重点确认「跳过 token 行扣费」的判断仍挂在正确的结算点上。
 
+2026-09-01 同步 rc.30 实况：上游 #7076 把普通令牌 `-N` 指定渠道的 `specific_channel_id` context key 换成了 `service.GetChannelConstraints(c).AddPin(...)`（`dto.ChannelPin`，`PinSourceToken`），`exchange_key_auth_test.go` 的断言已改为读 `ResolvedPin()`。另外上游把 web 测试运行器换成了 vitest，本条目的四个前端测试文件已从 `node:test` 转为 vitest 导入（`after` → `afterAll`）。
+
 ## 验证方式
 
 ```bash

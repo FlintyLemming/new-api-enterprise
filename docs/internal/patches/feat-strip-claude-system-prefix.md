@@ -34,7 +34,7 @@ Claude Code 每个 `/v1/messages` 请求都把变化的 `x-anthropic-billing-hea
 
 `relaykit/relayconvert/internal/claude_messages/to_oai_chat_req.go` 的 system 拼接是上游会改的路径；`relaykit/dto/channel_settings.go` 的字段列表也常被上游追加。同步上游时保留本开关与过滤，并确认扁平化循环没有被重写成另一条路径而绕过 `shouldStripClaudeSystemText`。
 
-前端 `channel-mutate-drawer.tsx` 和七个 locale 文件属于机械冲突，取并集即可。
+前端 `channel-mutate-drawer.tsx` 和七个 locale 文件属于机械冲突，取并集即可（rc.30 起 `channel_settings.go`/`channel-form.ts` 多了上游的 `task_plugin_key` 字段）。
 
 ## 验证方式
 
