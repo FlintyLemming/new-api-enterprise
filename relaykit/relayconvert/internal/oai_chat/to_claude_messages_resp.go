@@ -35,6 +35,20 @@ func stopOpenBlocks(state *convmeta.ClaudeConvertInfo) []*dto.ClaudeResponse {
 	}
 }
 
+func markToolCallStartSent(state *convmeta.ClaudeConvertInfo, offset int) bool {
+	if state == nil {
+		return true
+	}
+	if state.ToolCallStartSent == nil {
+		state.ToolCallStartSent = make(map[int]bool)
+	}
+	if state.ToolCallStartSent[offset] {
+		return false
+	}
+	state.ToolCallStartSent[offset] = true
+	return true
+}
+
 func buildClaudeUsageFromOpenAIUsage(oaiUsage *dto.Usage, info convmeta.Meta) *dto.ClaudeUsage {
 	if oaiUsage == nil {
 		return nil
@@ -137,6 +151,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			state.Index = state.ToolCallBaseIndex + state.ToolCallMaxIndexOffset + 1
 			state.ToolCallBaseIndex = 0
 			state.ToolCallMaxIndexOffset = 0
+			state.ToolCallStartSent = nil
 		default:
 			state.Index++
 		}
@@ -191,15 +206,17 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 			resp.SetIndex(0)
 			claudeResponses = append(claudeResponses, resp)
+			markToolCallStartSent(state, 0)
 			// 首块包含工具 delta，则追加 input_json_delta
-			if toolCall.Function.Arguments != "" {
+			if args := toolCall.Function.Arguments; args != "" {
 				idx := 0
+				argCopy := args
 				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
 					Index: &idx,
 					Type:  "content_block_delta",
 					Delta: &dto.ClaudeMediaMessage{
 						Type:        "input_json_delta",
-						PartialJson: &toolCall.Function.Arguments,
+						PartialJson: &argCopy,
 					},
 				})
 			}
@@ -314,14 +331,17 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 	} else {
 		chosenChoice := openAIResponse.Choices[0]
 		doneChunk := chosenChoice.FinishReason != nil && *chosenChoice.FinishReason != ""
+		// deferClose: this chunk carries finish_reason but no usage yet. We must still
+		// process the delta payload below -- upstreams such as vLLM ship the final
+		// tool_call argument fragment in the SAME chunk as finish_reason, and returning
+		// early here truncated it, producing invalid tool-call JSON downstream.
+		deferClose := false
 		if doneChunk {
 			state.FinishReason = *chosenChoice.FinishReason
-			oaiUsage := openAIResponse.Usage
-			if oaiUsage == nil {
-				oaiUsage = state.Usage
+			if openAIResponse.Usage == nil {
 				// Some upstreams emit finish_reason first, then send a final usage-only chunk.
 				// Defer closing until usage is available so the final message_delta carries it.
-				return claudeResponses
+				deferClose = true
 			}
 		}
 
@@ -352,9 +372,10 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 				blockIndex := base + offset
 
 				idx := blockIndex
-				if toolCall.Function.Name != "" {
+				if toolCall.Function.Name != "" && markToolCallStartSent(state, offset) {
+					startIdx := idx
 					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-						Index: &idx,
+						Index: &startIdx,
 						Type:  "content_block_start",
 						ContentBlock: &dto.ClaudeMediaMessage{
 							Id:    toolCall.ID,
@@ -365,13 +386,15 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					})
 				}
 
-				if len(toolCall.Function.Arguments) > 0 {
+				if args := toolCall.Function.Arguments; len(args) > 0 {
+					deltaIdx := idx
+					argCopy := args
 					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-						Index: &idx,
+						Index: &deltaIdx,
 						Type:  "content_block_delta",
 						Delta: &dto.ClaudeMediaMessage{
 							Type:        "input_json_delta",
-							PartialJson: &toolCall.Function.Arguments,
+							PartialJson: &argCopy,
 						},
 					})
 				}
@@ -429,7 +452,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			claudeResponses = append(claudeResponses, &claudeResponse)
 		}
 
-		if doneChunk || state.Done {
+		if (doneChunk && !deferClose) || state.Done {
 			appendStopOpenBlocks()
 			oaiUsage := openAIResponse.Usage
 			if oaiUsage == nil {

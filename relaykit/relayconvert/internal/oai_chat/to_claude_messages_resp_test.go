@@ -1,6 +1,7 @@
 package oaichat
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -519,4 +520,218 @@ func TestNormalizeCacheCreationSplit(t *testing.T) {
 
 func ptr[T any](value T) *T {
 	return &value
+}
+
+// Regression: upstreams such as vLLM emit the FINAL tool_call argument fragment in the
+// same chunk as finish_reason, with usage deferred to a later usage-only chunk. The
+// converter used to return early on that chunk, dropping the fragment and handing the
+// client truncated (invalid) tool-call JSON -> "Invalid tool parameters" in Claude Code.
+func TestStreamResponseOpenAI2ClaudeKeepsToolArgsOnFinishReasonChunk(t *testing.T) {
+	info := &convmeta.Values{
+		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
+			LastMessagesType: convmeta.LastMessageTypeNone,
+		},
+	}
+
+	partial := map[int]string{}
+	collect := func(responses []*dto.ClaudeResponse) {
+		for _, r := range responses {
+			if r.Type == "content_block_delta" && r.Delta != nil &&
+				r.Delta.Type == "input_json_delta" && r.Delta.PartialJson != nil {
+				partial[r.GetIndex()] += *r.Delta.PartialJson
+			}
+		}
+	}
+
+	toolChunk := func(idx int, id, name, args string) *dto.ChatCompletionsStreamResponse {
+		return &dto.ChatCompletionsStreamResponse{
+			Id:    "chatcmpl_1",
+			Model: "gpt-test",
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{{
+						Index: ptr(idx), ID: id, Type: "function",
+						Function: dto.FunctionResponse{Name: name, Arguments: args},
+					}},
+				},
+			}},
+		}
+	}
+
+	// 1) thinking first (GLM-style reasoning) so tool blocks do not start at index 0
+	info.SendResponseCount = 1
+	collect(StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id: "chatcmpl_1", Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{ReasoningContent: ptr("thinking")},
+		}},
+	}, info))
+
+	// 2) first tool call, fully delivered before finish
+	info.SendResponseCount = 2
+	collect(StreamResponseOpenAI2Claude(toolChunk(0, "call_1", "Bash", `{"command":"ls -la"}`), info))
+
+	// 3) second tool call opens with a PARTIAL argument fragment
+	info.SendResponseCount = 3
+	collect(StreamResponseOpenAI2Claude(toolChunk(1, "call_2", "Glob", `{"pattern":"**`), info))
+
+	// 4) the finish_reason chunk ALSO carries the trailing fragment, and has no usage yet
+	info.SendResponseCount = 4
+	finishChunk := toolChunk(1, "", "", `/*"}`)
+	finishChunk.Choices[0].FinishReason = ptr("tool_calls")
+	finishResponses := StreamResponseOpenAI2Claude(finishChunk, info)
+	collect(finishResponses)
+
+	// the stream must NOT be closed yet (usage has not arrived)
+	for _, r := range finishResponses {
+		assert.NotEqual(t, "message_stop", r.Type, "must defer closing until usage arrives")
+	}
+
+	// 5) trailing usage-only chunk closes the stream
+	info.SendResponseCount = 5
+	closeResponses := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id: "chatcmpl_1", Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{},
+		Usage:   &dto.Usage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10},
+	}, info)
+	sawStop := false
+	for _, r := range closeResponses {
+		if r.Type == "message_stop" {
+			sawStop = true
+		}
+	}
+	assert.True(t, sawStop, "usage-only chunk should close the stream")
+
+	// every tool block must carry complete, parseable JSON
+	require.Len(t, partial, 2)
+	for idx, buf := range partial {
+		var decoded map[string]interface{}
+		require.NoErrorf(t, json.Unmarshal([]byte(buf), &decoded),
+			"tool block %d has truncated JSON: %s", idx, buf)
+	}
+	assert.Equal(t, `{"command":"ls -la"}`, partial[1])
+	assert.Equal(t, `{"pattern":"**/*"}`, partial[2])
+}
+
+// GLM/vLLM continuation chunks re-emit function.name (vllm#44098). Claude Code
+// resets tool input to {} on every content_block_start, so a second start for
+// the same index truncates JSON and surfaces as "Invalid tool parameters".
+func TestStreamResponseOpenAI2ClaudeDoesNotRestartToolBlockWhenNameRepeats(t *testing.T) {
+	info := &convmeta.Values{
+		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
+			LastMessagesType: convmeta.LastMessageTypeNone,
+		},
+	}
+
+	acc := map[int]string{}
+	starts := map[int]int{}
+	collect := func(responses []*dto.ClaudeResponse) {
+		for _, r := range responses {
+			idx := r.GetIndex()
+			if r.Type == "content_block_start" && r.ContentBlock != nil && r.ContentBlock.Type == "tool_use" {
+				starts[idx]++
+				acc[idx] = ""
+			}
+			if r.Type == "content_block_delta" && r.Delta != nil &&
+				r.Delta.Type == "input_json_delta" && r.Delta.PartialJson != nil {
+				acc[idx] += *r.Delta.PartialJson
+			}
+		}
+	}
+
+	toolChunk := func(idx int, id, name, args string, finish *string) *dto.ChatCompletionsStreamResponse {
+		chunk := &dto.ChatCompletionsStreamResponse{
+			Id:    "chatcmpl_1",
+			Model: "glm-5.3-flash",
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{{
+						Index: ptr(idx), ID: id, Type: "function",
+						Function: dto.FunctionResponse{Name: name, Arguments: args},
+					}},
+				},
+			}},
+		}
+		if finish != nil {
+			chunk.Choices[0].FinishReason = finish
+		}
+		return chunk
+	}
+
+	info.SendResponseCount = 1
+	collect(StreamResponseOpenAI2Claude(toolChunk(0, "call_grep", "Grep", `{"pattern":`, nil), info))
+
+	info.SendResponseCount = 2
+	collect(StreamResponseOpenAI2Claude(toolChunk(0, "call_grep", "Grep", `"src/**/*.go","glob":"*.go"}`, nil), info))
+
+	info.SendResponseCount = 3
+	finish := toolChunk(0, "call_grep", "Grep", ``, ptr("tool_calls"))
+	finish.Usage = &dto.Usage{PromptTokens: 10, CompletionTokens: 8, TotalTokens: 18}
+	collect(StreamResponseOpenAI2Claude(finish, info))
+
+	require.Equal(t, 1, starts[0], "content_block_start must be emitted once per tool index")
+	require.Equal(t, `{"pattern":"src/**/*.go","glob":"*.go"}`, acc[0])
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(acc[0]), &decoded))
+}
+
+func TestStreamResponseOpenAI2ClaudeDoesNotRestartToolBlockAfterThinking(t *testing.T) {
+	info := &convmeta.Values{
+		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
+			LastMessagesType: convmeta.LastMessageTypeNone,
+		},
+	}
+
+	acc := map[int]string{}
+	starts := map[int]int{}
+	collect := func(responses []*dto.ClaudeResponse) {
+		for _, r := range responses {
+			idx := r.GetIndex()
+			if r.Type == "content_block_start" && r.ContentBlock != nil && r.ContentBlock.Type == "tool_use" {
+				starts[idx]++
+				acc[idx] = ""
+			}
+			if r.Type == "content_block_delta" && r.Delta != nil &&
+				r.Delta.Type == "input_json_delta" && r.Delta.PartialJson != nil {
+				acc[idx] += *r.Delta.PartialJson
+			}
+		}
+	}
+
+	info.SendResponseCount = 1
+	collect(StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id: "chatcmpl_1", Model: "glm-5.3-flash",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{ReasoningContent: ptr("thinking")},
+		}},
+	}, info))
+
+	info.SendResponseCount = 2
+	collect(StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id: "chatcmpl_1", Model: "glm-5.3-flash",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+				ToolCalls: []dto.ToolCallResponse{{
+					Index: ptr(0), ID: "call_1", Type: "function",
+					Function: dto.FunctionResponse{Name: "Grep", Arguments: `{"pattern":"`},
+				}},
+			},
+		}},
+	}, info))
+
+	info.SendResponseCount = 3
+	collect(StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id: "chatcmpl_1", Model: "glm-5.3-flash",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+				ToolCalls: []dto.ToolCallResponse{{
+					Index: ptr(0), ID: "call_1", Type: "function",
+					Function: dto.FunctionResponse{Name: "Grep", Arguments: `foo"}`},
+				}},
+			},
+		}},
+	}, info))
+
+	require.Equal(t, 1, starts[1], "thinking occupies index 0; tool start must happen once at index 1")
+	require.Equal(t, `{"pattern":"foo"}`, acc[1])
 }
