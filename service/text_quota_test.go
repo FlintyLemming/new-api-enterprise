@@ -1445,3 +1445,86 @@ func TestNormalizeLogPromptTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestPostTextConsumeQuotaNormalizesLoggedPromptTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	truncate(t)
+	seedUser(t, 1, 1000000)
+	seedToken(t, 1, 1, "sk-test", 1000000)
+	seedChannel(t, 1)
+
+	setting := operation_setting.GetGeneralSetting()
+	originalCaliber := setting.UsageStatsCacheCaliber
+	t.Cleanup(func() { setting.UsageStatsCacheCaliber = originalCaliber })
+
+	newRelayInfo := func() *relaycommon.RelayInfo {
+		return &relaycommon.RelayInfo{
+			RelayFormat:             types.RelayFormatOpenAI,
+			FinalRequestRelayFormat: types.RelayFormatOpenAI,
+			OriginModelName:         "gpt-test",
+			UserId:                  1,
+			ChannelMeta:             &relaycommon.ChannelMeta{ChannelId: 1},
+			TokenId:                 1,
+			TokenKey:                "sk-test",
+			UserQuota:               100000000, // 远高于通知阈值，避免触发额度提醒
+			UsingGroup:              "default",
+			PriceData: hosttypes.PriceData{
+				ModelRatio:      1,
+				CompletionRatio: 1,
+				GroupRatioInfo:  hosttypes.GroupRatioInfo{GroupRatio: 1},
+			},
+			StartTime: time.Now(),
+		}
+	}
+	// openai 语义 → inclusive 口径（prompt 含缓存）；cacheRead=100, cacheWrite=50。
+	newUsage := func() *dto.Usage {
+		return &dto.Usage{
+			PromptTokens:     1000,
+			CompletionTokens: 200,
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens:         100,
+				CachedCreationTokens: 50,
+			},
+		}
+	}
+
+	readMarker := func(t *testing.T, log *model.Log) map[string]any {
+		t.Helper()
+		var other map[string]any
+		require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+		adminInfo, ok := other["admin_info"].(map[string]any)
+		require.True(t, ok, "admin_info must exist")
+		marker, ok := adminInfo["stats_normalization"].(map[string]any)
+		require.True(t, ok, "stats_normalization marker must exist")
+		return marker
+	}
+
+	// 对照组：upstream 口径，行为与现状逐字节一致（无标记）。
+	setting.UsageStatsCacheCaliber = operation_setting.StatsCacheCaliberUpstream
+	ctx1, _ := gin.CreateTestContext(httptest.NewRecorder())
+	PostTextConsumeQuota(ctx1, newRelayInfo(), newUsage(), nil)
+	controlLog := getLastLog(t)
+	require.NotNil(t, controlLog)
+	require.Equal(t, 1000, controlLog.PromptTokens)
+	require.Equal(t, 1050, controlLog.Quota) // (1000-100-50)*1 + 200*1，归一化不影响计费
+	var controlOther map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(controlLog.Other, &controlOther))
+	if adminInfo, ok := controlOther["admin_info"].(map[string]any); ok {
+		assert.NotContains(t, adminInfo, "stats_normalization")
+	}
+
+	// exclude_cache：落库 prompt 被替换为 1000-(100+50)=850，quota 不变，标记内容正确。
+	setting.UsageStatsCacheCaliber = operation_setting.StatsCacheCaliberExcludeCache
+	ctx2, _ := gin.CreateTestContext(httptest.NewRecorder())
+	PostTextConsumeQuota(ctx2, newRelayInfo(), newUsage(), nil)
+	normalizedLog := getLastLog(t)
+	require.NotNil(t, normalizedLog)
+	assert.Equal(t, 850, normalizedLog.PromptTokens)
+	assert.Equal(t, controlLog.Quota, normalizedLog.Quota, "normalization must not change billing")
+	marker := readMarker(t, normalizedLog)
+	assert.Equal(t, "exclude_cache", marker["target"])
+	assert.Equal(t, "include_cache", marker["upstream_caliber"])
+	assert.Equal(t, float64(1000), marker["original_prompt_tokens"])
+	assert.Equal(t, true, marker["applied"])
+	assert.NotContains(t, marker, "skip_reason")
+}

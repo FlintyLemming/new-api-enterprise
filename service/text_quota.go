@@ -704,9 +704,29 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
+	logPromptTokens := summary.PromptTokens
+	if caliber := operation_setting.GetUsageStatsCacheCaliber(); caliber != operation_setting.StatsCacheCaliberUpstream {
+		normalized, applied, skipReason := normalizeLogPromptTokens(summary, caliber)
+		upstreamCaliber := "include_cache"
+		if summary.InputExcludesCache {
+			upstreamCaliber = "exclude_cache"
+		}
+		marker := map[string]any{
+			"target":                 caliber,
+			"upstream_caliber":       upstreamCaliber,
+			"original_prompt_tokens": summary.PromptTokens,
+			"applied":                applied,
+		}
+		if !applied {
+			marker["skip_reason"] = skipReason
+		}
+		other.SetAdmin("stats_normalization", marker)
+		logPromptTokens = normalized
+	}
+
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
-		PromptTokens:     summary.PromptTokens,
+		PromptTokens:     logPromptTokens,
 		CompletionTokens: summary.CompletionTokens,
 		ModelName:        logModel,
 		TokenName:        summary.TokenName,
