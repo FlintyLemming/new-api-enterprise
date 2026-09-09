@@ -17,6 +17,48 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 const serverErrorMessageKeys = {
+  TELEGRAM_OAUTH_NOT_CONFIGURED:
+    'Telegram OAuth is not configured or enabled. Please contact your administrator.',
+  TELEGRAM_OAUTH_CONFLICT:
+    'The telegram OAuth provider name is reserved. Ask your administrator to rename the conflicting custom provider.',
+  TELEGRAM_OAUTH_FAILED: 'Telegram authorization failed. Please try again.',
+  TELEGRAM_ACCOUNT_NOT_BOUND:
+    'This Telegram account is not linked. Sign in using another method and link it first.',
+  TELEGRAM_LEGACY_AUTH_REMOVED:
+    'Telegram login has changed. Reload the page and start Telegram OAuth again.',
+  AUTH_INTERNAL_ERROR: 'Please try again later.',
+  SECURITY_VERIFICATION_FAILED: 'Verification failed. Please try again.',
+  SECURITY_VERIFICATION_FLOW_REQUIRED:
+    'This verification method requires its dedicated verification flow.',
+  SECURITY_VERIFICATION_LOCKED:
+    'Two-factor authentication is temporarily locked.',
+  OAUTH_ACCOUNT_MISMATCH:
+    'The OAuth account does not match the account linked to your profile.',
+  TWOFA_CODE_INVALID: 'The authenticator code is incorrect.',
+  TWOFA_ALREADY_ENABLED: 'Two-factor authentication is already enabled.',
+  TWOFA_NOT_ENABLED: 'Two-factor authentication is not enabled.',
+  PASSKEY_NOT_FOUND: 'No Passkey is registered.',
+  AUTH_FLOW_INVALID: 'Verification flow expired',
+  SECURITY_PROOF_REQUIRED: 'Additional verification required',
+  SECURITY_PROOF_EXPIRED:
+    'Security verification has expired. Please verify again.',
+  SECURITY_PROOF_INVALID:
+    'Security verification is no longer valid. Please verify again.',
+  SECURITY_PROOF_SCOPE_MISMATCH: 'Verification does not match this action.',
+  SECURITY_PROOF_CONSUMED:
+    'This verification has already been used. Please verify again.',
+  SECURITY_PROOF_CONTEXT_MISMATCH:
+    "Verification does not match this action's details. Please verify again.",
+  SECURITY_CONTEXT_INVALID: 'The action details are invalid.',
+  SECURITY_ACTION_FORBIDDEN:
+    'You do not have permission to perform this action.',
+  SECURITY_PROOF_METHOD_MISMATCH:
+    'This verification method is not allowed for this action.',
+  SECURITY_METHOD_UNAVAILABLE:
+    'This verification method is currently unavailable.',
+  TWOFA_SETUP_INVALID:
+    'The two-factor setup has expired or changed. Start setup again.',
+
   AUTH_SESSION_LIMIT:
     'Too many active login sessions. On a device where you are already signed in, open Login sessions and use “Sign out other sessions” to revoke them. If you cannot access a signed-in device, reset your password to sign out all sessions.',
   AUTH_SESSION_ISSUANCE_LIMIT:

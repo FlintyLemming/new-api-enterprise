@@ -278,7 +278,6 @@ export const channelFormSchema = z
     // Channel extra settings (stored in setting JSON, not sent directly)
     force_format: z.boolean().optional(),
     thinking_to_content: z.boolean().optional(),
-    anthropic_messages_exclude_cache: z.boolean().optional(),
     strip_anthropic_billing_header: z.boolean().optional(),
     proxy: z
       .string()
@@ -467,7 +466,6 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   // Channel extra settings
   force_format: false,
   thinking_to_content: false,
-  anthropic_messages_exclude_cache: false,
   strip_anthropic_billing_header: false,
   proxy: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
@@ -511,7 +509,6 @@ export function transformChannelToFormDefaults(
     task_plugin_key: '',
     force_format: false,
     thinking_to_content: false,
-    anthropic_messages_exclude_cache: false,
     strip_anthropic_billing_header: false,
     proxy: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
@@ -536,8 +533,6 @@ export function transformChannelToFormDefaults(
         task_plugin_key: parsed.task_plugin_key || '',
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
-        anthropic_messages_exclude_cache:
-          parsed.anthropic_messages_exclude_cache || false,
         strip_anthropic_billing_header:
           parsed.strip_anthropic_billing_header || false,
         proxy: parsed.proxy || '',
@@ -666,8 +661,6 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
         : undefined,
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
-    anthropic_messages_exclude_cache:
-      formData.anthropic_messages_exclude_cache || false,
     strip_anthropic_billing_header:
       formData.strip_anthropic_billing_header || false,
     proxy: formData.proxy?.trim() || '',

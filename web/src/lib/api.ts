@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/http-client'
+import { authRequestOptions, authResult } from '@/lib/secure-verification'
 
 export {
   applyAuthBundle,
@@ -28,6 +29,7 @@ export {
   getFreshAuthHeaders,
   isAuthBundle,
   refreshAuthentication,
+  resolveAuthentication,
   AuthRotationError,
 } from '@/lib/auth-session'
 export type { AuthTokenRotation, RefreshOutcome } from '@/lib/auth-session'
@@ -77,7 +79,14 @@ export async function getNotice(): Promise<{
   message?: string
   data?: string
 }> {
-  const res = await api.get('/api/notice')
+  // Drop the client's global `Cache-Control: no-store` for this public,
+  // non-user-specific payload. `no-store` forbids the browser from keeping a
+  // copy at all, so it would never hold an ETag to revalidate with and the
+  // server could never answer 304. The server sends `no-cache`, so the browser
+  // still revalidates on every request and an admin edit shows up immediately.
+  const res = await api.get('/api/notice', {
+    headers: { 'Cache-Control': null },
+  })
   return res.data
 }
 
@@ -85,39 +94,40 @@ export async function getNotice(): Promise<{
 // 2FA Management APIs
 // ============================================================================
 
-export async function get2FAStatus() {
-  const res = await api.get('/api/user/2fa/status')
-  return res.data
-}
-
-export async function setup2FA() {
-  const res = await api.post('/api/user/2fa/setup')
-  return res.data
-}
-
-export async function enable2FA(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/enable',
-    { code },
-    { acceptAuthRotation: true }
+export function disable2FA(
+  proofToken: string,
+  signal?: AbortSignal
+): Promise<{ notification_warning?: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/disable',
+      {},
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
   )
-  return res.data
 }
 
-export async function disable2FA(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/disable',
-    { code },
-    { acceptAuthRotation: true }
+export function regenerate2FABackupCodes(
+  proofToken: string,
+  signal?: AbortSignal
+): Promise<{ backup_codes: string[]; notification_warning?: boolean }> {
+  return authResult(
+    api.post(
+      '/api/user/2fa/backup_codes',
+      {},
+      {
+        ...authRequestOptions,
+        headers: { 'X-Security-Proof': proofToken },
+        acceptAuthRotation: true,
+        singleUseAuthorization: true,
+        signal,
+      }
+    )
   )
-  return res.data
-}
-
-export async function regenerate2FABackupCodes(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/backup_codes',
-    { code },
-    { acceptAuthRotation: true }
-  )
-  return res.data
 }

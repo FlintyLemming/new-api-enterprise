@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Combobox } from '@/components/ui/combobox'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -30,14 +31,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+
 import { Separator } from '@/components/ui/separator'
 
 import {
@@ -303,37 +297,15 @@ export function EditTagDialog({ open, onOpenChange }: EditTagDialogProps) {
                 </div>
 
                 <div className='flex gap-2'>
-                  <Select<string>
-                    items={[
-                      ...availableModels.map((model) => ({
-                        value: model,
-                        label: model,
-                      })),
-                    ]}
-                    onValueChange={(value) => {
-                      if (value === null) return
-                      if (!selectedModels.includes(value)) {
-                        setSelectedModels([...selectedModels, value])
-                      }
-                    }}
-                  >
-                    <SelectTrigger className='flex-1'>
-                      <SelectValue
-                        placeholder={t('Add from available models...')}
-                      />
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <ScrollArea className='h-60'>
-                          {availableModels.map((model) => (
-                            <SelectItem key={model} value={model}>
-                              {model}
-                            </SelectItem>
-                          ))}
-                        </ScrollArea>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+ options={availableModels.map((model) => ({ value: model, label: model }))}
+ onValueChange={(value: string | null) => {
+   if (value !== null && !selectedModels.includes(value)) setSelectedModels([...selectedModels, value])
+ }}
+ className='flex-1'
+ placeholder={t('Add from available models...')}
+ aria-label={t('Add from available models...')}
+/>
                 </div>
 
                 <div className='flex gap-2'>

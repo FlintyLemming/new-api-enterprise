@@ -122,7 +122,7 @@ var (
 )
 
 // compileEnvPrototypeV1 is the v1 type-checking prototype used at compile time.
-var compileEnvPrototypeV1 = map[string]interface{}{
+var compileEnvPrototypeV1 = map[string]any{
 	"p":          float64(0),
 	"c":          float64(0),
 	"len":        float64(0),
@@ -137,9 +137,9 @@ var compileEnvPrototypeV1 = map[string]interface{}{
 	"_trace":     func(int, bool, float64) float64 { return 1 },
 	"_trace_int": func(int, bool, int) int { return 1 },
 	"header":     func(string) string { return "" },
-	"param":      func(string) interface{} { return nil },
-	"u":          func(string) interface{} { return nil },
-	"has":        func(interface{}, string) bool { return false },
+	"param":      func(string) any { return nil },
+	"u":          func(string) any { return nil },
+	"has":        func(any, string) bool { return false },
 	"hour":       func(string) int { return 0 },
 	"minute":     func(string) int { return 0 },
 	"weekday":    func(string) int { return 0 },
@@ -152,7 +152,7 @@ var compileEnvPrototypeV1 = map[string]interface{}{
 	"floor":      math.Floor,
 }
 
-func getCompileEnv(version int) map[string]interface{} {
+func getCompileEnv(version int) map[string]any {
 	switch version {
 	default:
 		return compileEnvPrototypeV1

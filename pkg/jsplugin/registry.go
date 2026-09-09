@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +33,8 @@ const (
 	maxMetaDescriptionRunes       = 512
 	maxUsageFieldDescriptionRunes = 256
 )
+
+var websiteHostLabelPattern = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
 var pluginKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 var pluginVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$`)
@@ -75,6 +79,8 @@ func (t *LocalizedText) UnmarshalJSON(data []byte) error {
 }
 
 type Meta struct {
+	SortPriority  int                         `json:"sortPriority,omitempty"`
+	Website       string                      `json:"website,omitempty"`
 	APIVersion    int                         `json:"apiVersion"`
 	Key           string                      `json:"key"`
 	Name          string                      `json:"name"`
@@ -82,6 +88,7 @@ type Meta struct {
 	Description   LocalizedText               `json:"description,omitempty"`
 	Version       string                      `json:"version"`
 	Author        AuthorMeta                  `json:"author"`
+	BaseURL       string                      `json:"baseUrl,omitempty"`
 	ChannelTypes  []int                       `json:"channelTypes,omitempty"`
 	Models        []string                    `json:"models"`
 	FetchMode     string                      `json:"fetchMode"`
@@ -123,10 +130,11 @@ type AuthMeta struct {
 // influence billing. Numeric facts use one of the host-owned canonical units;
 // boolean facts are flags; enum facts constrain non-numeric pricing selectors.
 type UsageFieldSchema struct {
-	Type        string        `json:"type,omitempty"`
-	Unit        string        `json:"unit,omitempty"`
-	Enum        []string      `json:"enum,omitempty"`
-	Description LocalizedText `json:"description,omitempty"`
+	Type        string                   `json:"type,omitempty"`
+	Unit        string                   `json:"unit,omitempty"`
+	Enum        []string                 `json:"enum,omitempty"`
+	Description LocalizedText            `json:"description,omitempty"`
+	EnumLabels  map[string]LocalizedText `json:"enumLabels,omitempty"`
 }
 
 type LoadedPlugin struct {
@@ -169,7 +177,6 @@ type Registry struct {
 	activeOverride  map[string]*LoadedPlugin
 	disabledFactory map[string]struct{}
 	masterEnabled   atomic.Bool
-	overrideEnabled atomic.Bool
 	generation      atomic.Pointer[RoutingGeneration]
 	preparer        RoutingGenerationPreparer
 	routingErrors   map[string]string
@@ -185,8 +192,7 @@ func NewRegistry() *Registry {
 		routingErrors:  make(map[string]string),
 	}
 	registry.masterEnabled.Store(true)
-	registry.overrideEnabled.Store(true)
-	generation, _ := buildRoutingGeneration(registry.factory, registry.override, true, 0)
+	generation, _ := buildRoutingGeneration(registry.factory, registry.override, 0)
 	registry.generation.Store(generation)
 	registry.lastRebuild = RoutingRebuildOutcome{
 		Status:      "success",
@@ -221,8 +227,7 @@ func (r *Registry) register(source string, options Options, factory bool) (*Load
 	} else {
 		overridePlugins[plugin.Meta.Key] = plugin
 	}
-	enabled := r.overrideEnabled.Load()
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(factoryPlugins, r.disabledFactory), overridePlugins, enabled, false, nil)
+	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(factoryPlugins, r.disabledFactory), overridePlugins, false, nil)
 	if err != nil {
 		r.recordRebuildFailure(err)
 		return nil, err
@@ -233,7 +238,7 @@ func (r *Registry) register(source string, options Options, factory bool) (*Load
 	}
 	r.factory = factoryPlugins
 	r.override = overridePlugins
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, overridePlugins, enabled))
+	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, overridePlugins))
 	return plugin, nil
 }
 
@@ -460,37 +465,17 @@ func (r *Registry) SetEnabled(enabled bool) {
 	}
 	previous := r.masterEnabled.Load()
 	r.masterEnabled.Store(enabled)
-	overrideEnabled := r.overrideEnabled.Load()
 	var retainCurrent map[string]struct{}
-	if enabled && overrideEnabled {
+	if enabled {
 		retainCurrent = pluginMapKeys(r.override)
 	}
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), r.override, overrideEnabled, true, retainCurrent)
+	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), r.override, true, retainCurrent)
 	if err != nil {
 		r.masterEnabled.Store(previous)
 		r.recordRebuildFailure(err)
 		return
 	}
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override, overrideEnabled))
-}
-
-func (r *Registry) SetOverrideEnabled(enabled bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.overrideEnabled.Load() == enabled {
-		return
-	}
-	var retainCurrent map[string]struct{}
-	if enabled {
-		retainCurrent = pluginMapKeys(r.override)
-	}
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), r.override, enabled, true, retainCurrent)
-	if err != nil {
-		r.recordRebuildFailure(err)
-		return
-	}
-	r.overrideEnabled.Store(enabled)
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override, enabled))
+	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override))
 }
 
 func (r *Registry) SetDisabledFactoryKeys(keys []string) {
@@ -518,18 +503,14 @@ func (r *Registry) SetDisabledFactoryKeys(keys []string) {
 		}
 	}
 
-	enabled := r.overrideEnabled.Load()
-	var retainCurrent map[string]struct{}
-	if enabled {
-		retainCurrent = pluginMapKeys(r.override)
-	}
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, next), r.override, enabled, true, retainCurrent)
+	retainCurrent := pluginMapKeys(r.override)
+	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, next), r.override, true, retainCurrent)
 	if err != nil {
 		r.recordRebuildFailure(err)
 		return
 	}
 	r.disabledFactory = next
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override, enabled))
+	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override))
 }
 
 func (r *Registry) Unregister(key string) error {
@@ -540,18 +521,14 @@ func (r *Registry) Unregister(key string) error {
 	}
 	overridePlugins := clonePluginMap(r.override)
 	delete(overridePlugins, key)
-	enabled := r.overrideEnabled.Load()
-	var retainCurrent map[string]struct{}
-	if enabled {
-		retainCurrent = pluginMapKeys(overridePlugins)
-	}
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), overridePlugins, enabled, true, retainCurrent)
+	retainCurrent := pluginMapKeys(overridePlugins)
+	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), overridePlugins, true, retainCurrent)
 	if err != nil {
 		r.recordRebuildFailure(err)
 		return err
 	}
 	r.override = overridePlugins
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, overridePlugins, enabled))
+	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, overridePlugins))
 	return nil
 }
 
@@ -573,18 +550,14 @@ func (r *Registry) ReplaceOverrides(plugins []*LoadedPlugin) error {
 	if samePluginMap(r.override, overridePlugins) {
 		return nil
 	}
-	enabled := r.overrideEnabled.Load()
-	var retainCurrent map[string]struct{}
-	if enabled {
-		retainCurrent = pluginMapKeys(overridePlugins)
-	}
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), overridePlugins, enabled, true, retainCurrent)
+	retainCurrent := pluginMapKeys(overridePlugins)
+	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), overridePlugins, true, retainCurrent)
 	if err != nil {
 		r.recordRebuildFailure(err)
 		return err
 	}
 	r.override = overridePlugins
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, overridePlugins, enabled))
+	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, overridePlugins))
 	return nil
 }
 
@@ -610,18 +583,14 @@ func (r *Registry) SetGenerationPreparer(preparer RoutingGenerationPreparer) err
 
 	previous := r.preparer
 	r.preparer = preparer
-	enabled := r.overrideEnabled.Load()
-	var retainCurrent map[string]struct{}
-	if enabled {
-		retainCurrent = pluginMapKeys(r.override)
-	}
-	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), r.override, enabled, true, retainCurrent)
+	retainCurrent := pluginMapKeys(r.override)
+	generation, routingErrors, err := r.prepareGeneration(filterDisabledFactory(r.factory, r.disabledFactory), r.override, true, retainCurrent)
 	if err != nil {
 		r.preparer = previous
 		r.recordRebuildFailure(err)
 		return err
 	}
-	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override, enabled))
+	r.publishGeneration(generation, routingErrors, r.resolveActiveOverrides(generation, r.override))
 	return nil
 }
 
@@ -659,7 +628,7 @@ func (r *Registry) RoutingStatus() RoutingStatus {
 
 func (r *Registry) prepareGeneration(
 	factory, override map[string]*LoadedPlugin,
-	enabled, tolerateConflicts bool,
+	tolerateConflicts bool,
 	retainCurrent map[string]struct{},
 ) (*RoutingGeneration, map[string]string, error) {
 	if !r.masterEnabled.Load() {
@@ -677,20 +646,13 @@ func (r *Registry) prepareGeneration(
 		err           error
 	)
 	if tolerateConflicts {
-		generation, routingErrors, err = buildRoutingGenerationAdmitting(factory, override, enabled, number, current, retainCurrent)
+		generation, routingErrors, err = buildRoutingGenerationAdmitting(factory, override, number, current, retainCurrent)
 	} else {
-		generation, err = buildRoutingGeneration(factory, override, enabled, number)
+		generation, err = buildRoutingGeneration(factory, override, number)
 		routingErrors = make(map[string]string)
 	}
 	if err != nil {
 		return nil, nil, err
-	}
-	if !tolerateConflicts {
-		// Both runtime switch positions must remain publishable so toggling the
-		// override layer never exposes an invalid generation.
-		if _, err = buildRoutingGeneration(factory, override, !enabled, number); err != nil {
-			return nil, nil, err
-		}
 	}
 	if r.preparer != nil {
 		prepared, prepareErr := r.preparer(generation, current)
@@ -853,6 +815,13 @@ func cloneMeta(meta Meta) Meta {
 			if field.Description != nil {
 				field.Description = maps.Clone(field.Description)
 			}
+			if field.EnumLabels != nil {
+				labels := make(map[string]LocalizedText, len(field.EnumLabels))
+				for value, label := range field.EnumLabels {
+					labels[value] = maps.Clone(label)
+				}
+				field.EnumLabels = labels
+			}
 			usageSchema[key] = field
 		}
 		meta.UsageSchema = usageSchema
@@ -921,12 +890,8 @@ func pluginMapKeys(plugins map[string]*LoadedPlugin) map[string]struct{} {
 func (r *Registry) resolveActiveOverrides(
 	generation *RoutingGeneration,
 	override map[string]*LoadedPlugin,
-	enabled bool,
 ) map[string]*LoadedPlugin {
 	active := make(map[string]*LoadedPlugin)
-	if !enabled {
-		return active
-	}
 	for _, plugin := range generation.plugins {
 		desired, hasOverride := override[plugin.Meta.Key]
 		if !hasOverride {
@@ -946,7 +911,7 @@ func decodeMeta(value any) (Meta, error) {
 	}
 	for field := range object {
 		switch field {
-		case "apiVersion", "key", "name", "icon", "description", "version", "author", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "auth", "endpoints", "submitPaths", "actions":
+		case "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "routes", "protocols", "usageSchema", "usageExamples", "auth", "endpoints", "submitPaths", "actions":
 		default:
 			return Meta{}, fmt.Errorf("plugin meta has unknown field %q", field)
 		}
@@ -964,6 +929,12 @@ func decodeMeta(value any) (Meta, error) {
 		return Meta{}, err
 	}
 	if meta.Icon, err = stringMetaField(object, "icon"); err != nil {
+		return Meta{}, err
+	}
+	if meta.SortPriority, err = integerMetaField(object, "sortPriority"); err != nil {
+		return Meta{}, err
+	}
+	if meta.Website, err = stringMetaField(object, "website"); err != nil {
 		return Meta{}, err
 	}
 	meta.Icon = strings.TrimSpace(meta.Icon)
@@ -990,6 +961,9 @@ func decodeMeta(value any) (Meta, error) {
 		if !ok {
 			return Meta{}, fmt.Errorf("plugin meta author field %q must be a string", "url")
 		}
+	}
+	if meta.BaseURL, err = stringMetaField(object, "baseUrl"); err != nil {
+		return Meta{}, err
 	}
 	if _, exists := object["channelType"]; exists {
 		return Meta{}, fmt.Errorf("plugin meta channelType is no longer supported; declare channelTypes instead")
@@ -1084,6 +1058,38 @@ func ValidateV1Meta(meta Meta) error {
 }
 
 func normalizeV1Meta(meta *Meta) error {
+	if meta.SortPriority < math.MinInt32 || meta.SortPriority > math.MaxInt32 {
+		return fmt.Errorf("plugin meta sortPriority must be a signed 32-bit integer")
+	}
+	meta.Website = strings.TrimSpace(meta.Website)
+	if meta.Website != "" {
+		parsed, err := url.Parse(meta.Website)
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Opaque != "" {
+			return fmt.Errorf("plugin meta website must be an absolute HTTPS URL without credentials")
+		}
+		for _, character := range meta.Website {
+			if unicode.IsSpace(character) || unicode.IsControl(character) || character == '\\' {
+				return fmt.Errorf("plugin meta website must not contain whitespace, control characters, or backslashes")
+			}
+		}
+		host := strings.TrimSuffix(parsed.Hostname(), ".")
+		if net.ParseIP(host) == nil {
+			if len(host) > 253 || host == "" {
+				return fmt.Errorf("plugin meta website must have a valid hostname")
+			}
+			for label := range strings.SplitSeq(host, ".") {
+				if !websiteHostLabelPattern.MatchString(label) {
+					return fmt.Errorf("plugin meta website must have a valid ASCII hostname; use punycode for internationalized domains")
+				}
+			}
+		}
+		if port := parsed.Port(); port != "" {
+			number, err := strconv.Atoi(port)
+			if err != nil || number < 0 || number > 65535 {
+				return fmt.Errorf("plugin meta website has an invalid port")
+			}
+		}
+	}
 	if meta.APIVersion != APIVersion1 {
 		return fmt.Errorf("unsupported plugin apiVersion %d", meta.APIVersion)
 	}
@@ -1091,6 +1097,9 @@ func normalizeV1Meta(meta *Meta) error {
 		return fmt.Errorf("plugin meta name is required")
 	}
 	meta.Icon = strings.TrimSpace(meta.Icon)
+	if strings.HasPrefix(meta.Icon, "data:") || strings.Contains(meta.Icon, "://") {
+		return fmt.Errorf("plugin meta icon must be a LobeHub icon name or text; ship an image logo as an icon.svg or icon.png file next to plugin.js instead")
+	}
 	if meta.Icon != "" {
 		if utf8.RuneCountInString(meta.Icon) > 128 {
 			return fmt.Errorf("plugin meta icon must not exceed 128 characters")
@@ -1114,6 +1123,14 @@ func normalizeV1Meta(meta *Meta) error {
 		if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 			return fmt.Errorf("plugin meta author url must be an absolute HTTP(S) URL")
 		}
+	}
+	meta.BaseURL = strings.TrimSpace(meta.BaseURL)
+	if meta.BaseURL != "" {
+		normalized, err := normalizeMetaBaseURL(meta.BaseURL)
+		if err != nil {
+			return err
+		}
+		meta.BaseURL = normalized
 	}
 	if !pluginKeyPattern.MatchString(meta.Key) {
 		return fmt.Errorf("plugin meta key must match %s", pluginKeyPattern)
@@ -1157,14 +1174,16 @@ func normalizeV1Meta(meta *Meta) error {
 		models[model] = struct{}{}
 	}
 	hosts := make(map[string]struct{}, len(meta.AllowedHosts))
-	for _, host := range meta.AllowedHosts {
-		if strings.TrimSpace(host) == "" || strings.ContainsAny(host, "/:?#") {
-			return fmt.Errorf("plugin meta allowedHosts must contain hostnames without schemes, ports, or paths")
+	for index, host := range meta.AllowedHosts {
+		normalized, err := normalizeAllowedHost(host)
+		if err != nil {
+			return err
 		}
-		if _, exists := hosts[host]; exists {
+		if _, exists := hosts[normalized]; exists {
 			return fmt.Errorf("plugin meta allowedHosts must be unique")
 		}
-		hosts[host] = struct{}{}
+		hosts[normalized] = struct{}{}
+		meta.AllowedHosts[index] = normalized
 	}
 	routeKeys := make(map[string]struct{}, len(meta.Routes))
 	for index := range meta.Routes {
@@ -1269,7 +1288,7 @@ func decodeUsageSchema(value any) (map[string]UsageFieldSchema, error) {
 		}
 		for key := range fieldObject {
 			switch key {
-			case "type", "unit", "enum", "description":
+			case "type", "unit", "enum", "description", "enumLabels":
 			default:
 				return nil, fmt.Errorf("plugin meta usageSchema field %q has unknown property %q", name, key)
 			}
@@ -1290,6 +1309,20 @@ func decodeUsageSchema(value any) (map[string]UsageFieldSchema, error) {
 				return nil, err
 			}
 		}
+		if rawLabels, exists := fieldObject["enumLabels"]; exists {
+			labels, ok := rawLabels.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("plugin meta usageSchema field %q enumLabels must be an object", name)
+			}
+			field.EnumLabels = make(map[string]LocalizedText, len(labels))
+			for value := range labels {
+				label, err := localizedTextMetaField(labels, value, maxUsageFieldDescriptionRunes)
+				if err != nil {
+					return nil, fmt.Errorf("plugin meta usageSchema field %q enumLabels: %w", name, err)
+				}
+				field.EnumLabels[value] = label
+			}
+		}
 		if err = validateUsageFieldSchema(name, field); err != nil {
 			return nil, err
 		}
@@ -1301,6 +1334,9 @@ func decodeUsageSchema(value any) (map[string]UsageFieldSchema, error) {
 func validateUsageFieldSchema(name string, field UsageFieldSchema) error {
 	if err := validateLocalizedText(field.Description, fmt.Sprintf("usageSchema field %q description", name), maxUsageFieldDescriptionRunes); err != nil {
 		return err
+	}
+	if field.EnumLabels != nil && field.Enum == nil {
+		return fmt.Errorf("plugin meta usageSchema field %q enumLabels requires enum", name)
 	}
 	if field.Enum != nil {
 		if field.Type != "" || field.Unit != "" {
@@ -1315,6 +1351,17 @@ func validateUsageFieldSchema(name string, field UsageFieldSchema) error {
 				return fmt.Errorf("plugin meta usageSchema field %q enum values must be unique", name)
 			}
 			values[value] = struct{}{}
+		}
+		for value, label := range field.EnumLabels {
+			if _, exists := values[value]; !exists {
+				return fmt.Errorf("plugin meta usageSchema field %q enumLabels has undeclared enum value %q", name, value)
+			}
+			if label == nil {
+				return fmt.Errorf("plugin meta usageSchema field %q enumLabels value %q must include a non-empty label", name, value)
+			}
+			if err := validateLocalizedText(label, fmt.Sprintf("usageSchema field %q enumLabels value %q", name, value), maxUsageFieldDescriptionRunes); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -1638,6 +1685,94 @@ func integerSliceMetaField(object map[string]any, name string) ([]int, error) {
 	return numbers, nil
 }
 
+// MaxMetaBaseURLLength bounds a normalized plugin default base URL. The value
+// is persisted into channel.base_url, which the pinned MySQL driver creates as
+// varchar(191); a longer default would store on SQLite and PostgreSQL but fail
+// on MySQL.
+const MaxMetaBaseURLLength = 191
+
+// normalizeMetaBaseURL admits an absolute http(s) URL that a channel can adopt
+// verbatim as its base URL: no credentials, query, or fragment, an ASCII
+// lowercase host, and no trailing slash so plugins can concatenate paths.
+func normalizeMetaBaseURL(raw string) (string, error) {
+	for _, character := range raw {
+		if unicode.IsSpace(character) || unicode.IsControl(character) {
+			return "", fmt.Errorf("plugin meta baseUrl must not contain whitespace or control characters")
+		}
+	}
+	if strings.ContainsAny(raw, "?#") {
+		return "", fmt.Errorf("plugin meta baseUrl must not contain a query or fragment")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Opaque != "" || parsed.Host == "" || parsed.Hostname() == "" {
+		return "", fmt.Errorf("plugin meta baseUrl must be an absolute HTTP(S) URL")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", fmt.Errorf("plugin meta baseUrl must use the http or https scheme")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("plugin meta baseUrl must not contain credentials")
+	}
+	hostname := parsed.Hostname()
+	for _, character := range hostname {
+		if character > unicode.MaxASCII {
+			return "", fmt.Errorf("plugin meta baseUrl host must be ASCII; use punycode for internationalized domains")
+		}
+	}
+	host := strings.ToLower(hostname)
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := parsed.Port(); port != "" {
+		host += ":" + port
+	}
+	normalized := scheme + "://" + host + strings.TrimRight(parsed.EscapedPath(), "/")
+	if len(normalized) > MaxMetaBaseURLLength {
+		return "", fmt.Errorf("plugin meta baseUrl must not exceed %d characters", MaxMetaBaseURLLength)
+	}
+	return normalized, nil
+}
+
+// normalizeAllowedHost accepts "host" or "host:port" (IPv6 literals bracketed)
+// and rejects schemes, paths, credentials, and queries so the entry stays a
+// pure host match for ValidateRequestURL.
+func normalizeAllowedHost(raw string) (string, error) {
+	entry := strings.TrimSpace(raw)
+	if entry == "" || strings.ContainsAny(entry, "/?#@") {
+		return "", fmt.Errorf("plugin meta allowedHosts must contain hostnames (optionally with a port) without schemes, paths, or credentials")
+	}
+	host, port := entry, ""
+	if splitHost, splitPort, err := net.SplitHostPort(entry); err == nil {
+		host, port = splitHost, splitPort
+	} else if strings.HasPrefix(entry, "[") && strings.HasSuffix(entry, "]") {
+		host = entry[1 : len(entry)-1]
+	}
+	if host == "" {
+		return "", fmt.Errorf("plugin meta allowedHosts must contain hostnames (optionally with a port) without schemes, paths, or credentials")
+	}
+	for _, character := range host {
+		if character > unicode.MaxASCII || unicode.IsSpace(character) || unicode.IsControl(character) {
+			return "", fmt.Errorf("plugin meta allowedHosts must contain ASCII hostnames; use punycode for internationalized domains")
+		}
+	}
+	host = strings.ToLower(host)
+	if strings.Contains(host, ":") {
+		if net.ParseIP(host) == nil {
+			return "", fmt.Errorf("plugin meta allowedHosts entries must be host or host:port; IPv6 literals must be bracketed")
+		}
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return "", fmt.Errorf("plugin meta allowedHosts port must be between 1 and 65535")
+		}
+		host += ":" + port
+	}
+	return host, nil
+}
+
 func stringMetaField(object map[string]any, name string) (string, error) {
 	value, exists := object[name]
 	if !exists {
@@ -1713,9 +1848,7 @@ func validateLocalizedText(text LocalizedText, name string, maxRunes int) error 
 	for locale := range text {
 		delete(text, locale)
 	}
-	for locale, value := range canonical {
-		text[locale] = value
-	}
+	maps.Copy(text, canonical)
 	return nil
 }
 

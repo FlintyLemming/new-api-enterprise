@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -115,6 +118,17 @@ func TestDisableThirdPartyPluginSupportsCascadeAndForce(t *testing.T) {
 	updated, err := model.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
 	assert.Equal(t, common.ChannelStatusManuallyDisabled, updated.Status)
+}
+
+// klingFactoryVersion returns the version declared in the embedded kling factory
+// manifest so tests do not hardcode a value that moves with every plugin release.
+func klingFactoryVersion(t *testing.T) string {
+	t.Helper()
+	factorySource, err := plugins.Source("kling")
+	require.NoError(t, err)
+	match := regexp.MustCompile(`version:\s*"([^"]+)"`).FindStringSubmatch(factorySource)
+	require.Len(t, match, 2, "kling factory manifest must declare a version")
+	return match[1]
 }
 
 func setupTaskPluginFactoryDisableTest(t *testing.T) {
@@ -236,11 +250,13 @@ func TestDisableFactoryPluginRespectsInUseGuard(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestDisableFactoryOverrideRowKeepsEnabledFlagPath(t *testing.T) {
+func TestDisableFactoryOverrideRowSuppressesBothLayers(t *testing.T) {
 	setupTaskPluginFactoryDisableTest(t)
 	factorySource, err := plugins.Source("kling")
 	require.NoError(t, err)
-	overrideSource := strings.Replace(factorySource, `version: "1.0.0"`, `version: "1.0.0-test-factory-status"`, 1)
+	factoryVersion := klingFactoryVersion(t)
+	overrideSource := strings.Replace(factorySource, `version: "`+factoryVersion+`"`, `version: "`+factoryVersion+`-test-factory-status"`, 1)
+	require.NotEqual(t, factorySource, overrideSource, "factory version marker must be found in kling source")
 	loaded, err := jsplugin.DefaultRegistry.Register(overrideSource, jsplugin.Options{})
 	require.NoError(t, err)
 	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister("kling") })
@@ -253,20 +269,51 @@ func TestDisableFactoryOverrideRowKeepsEnabledFlagPath(t *testing.T) {
 
 	recorder := postTaskPluginStatus(t, "kling", "", `{"enabled":false}`)
 	assert.Contains(t, recorder.Body.String(), `"success":true`)
-	assert.Empty(t, setting.GetTaskPluginDisabledFactoryKeys())
-
+	assert.Equal(t, []string{"kling"}, setting.GetTaskPluginDisabledFactoryKeys())
 	row, err := model.GetTaskPluginVersion("kling", "")
 	require.NoError(t, err)
 	assert.False(t, row.Enabled)
-
 	item := listTaskPluginItem(t, "kling")
 	assert.Equal(t, "override_over_factory", item.Source)
 	assert.False(t, item.Enabled)
-	assert.Equal(t, "disabled_fallback", item.RuntimeStatus)
-	assert.True(t, taskPluginOptionsHasKey(t, "kling"))
+	assert.Equal(t, "disabled", item.RuntimeStatus)
+	assert.False(t, taskPluginOptionsHasKey(t, "kling"))
+	_, ok := jsplugin.DefaultRegistry.Get("kling")
+	assert.False(t, ok, "factory built-in must not keep serving after the plugin is switched off")
+
+	recorder = postTaskPluginStatus(t, "kling", "", `{"enabled":true}`)
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	assert.Empty(t, setting.GetTaskPluginDisabledFactoryKeys())
+	row, err = model.GetTaskPluginVersion("kling", "")
+	require.NoError(t, err)
+	assert.True(t, row.Enabled)
 	got, ok := jsplugin.DefaultRegistry.Get("kling")
 	require.True(t, ok)
-	assert.Equal(t, "1.0.0", got.Meta.Version)
+	assert.Equal(t, loaded.Meta.Version, got.Meta.Version)
+	assert.Equal(t, "registered", listTaskPluginItem(t, "kling").RuntimeStatus)
+
+	// Regression: with every kling layer off, a plugin whose model differs from
+	// a built-in kling model only by case must upload without a routing conflict.
+	recorder = postTaskPluginStatus(t, "kling", "", `{"enabled":false}`)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	cleanupTaskPluginControllerRuntime(t, "kling-shadow")
+	const shadowSource = `
+export const meta = {apiVersion: 1, key: "kling-shadow", name: "Shadow", version: "1.0.0", author: {name: "Test"}, models: ["KLING-V1"], fetchMode: "per_task"};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`
+	body, err := common.Marshal(map[string]any{"source": shadowSource})
+	require.NoError(t, err)
+	uploadRecorder := httptest.NewRecorder()
+	uploadContext, _ := gin.CreateTestContext(uploadRecorder)
+	uploadContext.Request = httptest.NewRequest(http.MethodPost, "/api/plugin/task", strings.NewReader(string(body)))
+	uploadContext.Request.Header.Set("Content-Type", "application/json")
+	UploadTaskPlugin(uploadContext)
+	assert.Contains(t, uploadRecorder.Body.String(), `"success":true`)
+	_, ok = jsplugin.DefaultRegistry.Get("kling-shadow")
+	assert.True(t, ok)
 }
 
 func TestListTaskPluginsIncludesFactoryWithoutDatabaseRows(t *testing.T) {
@@ -311,11 +358,13 @@ func TestMasterSwitchEmptiesOptionsAndKeepsList(t *testing.T) {
 	assert.Equal(t, "kling", item.Meta.Key)
 }
 
-func TestGetTaskPluginOptionsIncludesUsageSchema(t *testing.T) {
+func TestGetTaskPluginOptionsIncludesUsageSchemaIconAndBaseURL(t *testing.T) {
+	setupTaskPluginControllerTest(t)
 	const key = "usage-options-probe"
 	source := `
 export const meta = {
   apiVersion: 1, key: "usage-options-probe", name: "Usage Options", version: "1.0.0", author: {name: "Test"},
+  icon: "text:UO", baseUrl: "http://localhost:9000/",
   models: ["usage-options-model"], fetchMode: "per_task",
   usageSchema: {seconds: {type: "number", unit: "second", description: "Generated media duration."}}
 };
@@ -338,6 +387,8 @@ export function parseTaskResult() { return {}; }
 		Success bool `json:"success"`
 		Data    []struct {
 			Key         string                               `json:"key"`
+			Icon        string                               `json:"icon"`
+			BaseURL     string                               `json:"baseUrl"`
 			UsageSchema map[string]jsplugin.UsageFieldSchema `json:"usageSchema"`
 		} `json:"data"`
 	}
@@ -349,57 +400,20 @@ export function parseTaskResult() { return {}; }
 		}
 		assert.Equal(t, "second", option.UsageSchema["seconds"].Unit)
 		assert.Equal(t, "Generated media duration.", option.UsageSchema["seconds"].Description["en"])
+		assert.Equal(t, "text:UO", option.Icon)
+		assert.Equal(t, "http://localhost:9000", option.BaseURL, "the drawer prefills the normalized plugin default")
 		return
 	}
 	t.Fatal("task plugin option not found")
-}
-
-func TestListTaskPluginsShowsDisabledFallbackWhenOverridesAreDisabled(t *testing.T) {
-	setupTaskPluginControllerTest(t)
-	factorySource, err := plugins.Source("kling")
-	require.NoError(t, err)
-	overrideSource := strings.Replace(factorySource, `version: "1.0.0"`, `version: "1.0.0-test-disabled-override"`, 1)
-	loaded, err := jsplugin.DefaultRegistry.Register(overrideSource, jsplugin.Options{})
-	require.NoError(t, err)
-	plugin := model.TaskPlugin{
-		Key: "kling", APIVersion: loaded.Meta.APIVersion, Version: loaded.Meta.Version,
-		Source: overrideSource, SourceHash: "test-hash", Enabled: true,
-	}
-	require.NoError(t, model.SaveTaskPlugin(&plugin))
-	originalEnabled := constant.TaskPluginOverrideEnabled
-	constant.TaskPluginOverrideEnabled = false
-	jsplugin.DefaultRegistry.SetOverrideEnabled(false)
-	t.Cleanup(func() {
-		constant.TaskPluginOverrideEnabled = originalEnabled
-		jsplugin.DefaultRegistry.SetOverrideEnabled(originalEnabled)
-		jsplugin.DefaultRegistry.Unregister("kling")
-	})
-
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodGet, "/api/plugin/task", nil)
-	ListTaskPlugins(context)
-
-	var response struct {
-		Success bool                 `json:"success"`
-		Data    []taskPluginListItem `json:"data"`
-	}
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
-	require.True(t, response.Success)
-	for _, item := range response.Data {
-		if item.Meta.Key == "kling" {
-			assert.Equal(t, "disabled_fallback", item.RuntimeStatus)
-			return
-		}
-	}
-	t.Fatal("kling plugin not found")
 }
 
 func TestDeleteActiveOverrideFallsBackToFactoryAndDeletesRecord(t *testing.T) {
 	setupTaskPluginControllerTest(t)
 	factorySource, err := plugins.Source("kling")
 	require.NoError(t, err)
-	overrideSource := strings.Replace(factorySource, `version: "1.0.0"`, `version: "1.0.0-test-override"`, 1)
+	factoryVersion := klingFactoryVersion(t)
+	overrideSource := strings.Replace(factorySource, `version: "`+factoryVersion+`"`, `version: "`+factoryVersion+`-test-override"`, 1)
+	require.NotEqual(t, factorySource, overrideSource, "factory version marker must be found in kling source")
 	loaded, err := jsplugin.DefaultRegistry.Register(overrideSource, jsplugin.Options{Key: "kling", Version: "test-override"})
 	require.NoError(t, err)
 	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister("kling") })
@@ -751,40 +765,6 @@ func TestSyncTaskPluginsCachesRejectedDesiredSourceWithoutLosingIncumbent(t *tes
 	assert.NotContains(t, jsplugin.DefaultRegistry.RoutingErrors(), pluginKey)
 }
 
-func TestSyncTaskPluginsPreservesLastCompiledOverrideWhileOverridesAreDisabled(t *testing.T) {
-	setupTaskPluginControllerTest(t)
-	key := "sync-disabled-override"
-	cleanupTaskPluginControllerRuntime(t, key)
-	v1Source := taskPluginControllerTestSource(key, "1.0.0")
-	require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{
-		Key: key, APIVersion: 1, Version: "1.0.0", Source: v1Source, SourceHash: "disabled-v1", Enabled: true,
-	}))
-	require.NoError(t, syncTaskPluginsOnce())
-	jsplugin.DefaultRegistry.SetOverrideEnabled(false)
-	t.Cleanup(func() { jsplugin.DefaultRegistry.SetOverrideEnabled(true) })
-
-	disabledGeneration := jsplugin.DefaultRegistry.Generation()
-	require.NoError(t, syncTaskPluginsOnce())
-	assert.Same(t, disabledGeneration, jsplugin.DefaultRegistry.Generation())
-
-	require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{
-		Key: key, APIVersion: 1, Version: "2.0.0",
-		Source: "export const meta = {", SourceHash: "disabled-v2", Enabled: true,
-	}))
-	require.NoError(t, model.ActivateTaskPlugin(key, "2.0.0"))
-	require.NoError(t, syncTaskPluginsOnce())
-	assert.Equal(t, "1.0.0", jsplugin.DefaultRegistry.OverridePlugins()[key].Meta.Version)
-	taskPluginSyncState.Lock()
-	assert.Equal(t, "disabled-v1", taskPluginSyncState.hashes[key])
-	assert.NotEmpty(t, taskPluginSyncState.errors[key])
-	taskPluginSyncState.Unlock()
-
-	jsplugin.DefaultRegistry.SetOverrideEnabled(true)
-	active, ok := jsplugin.DefaultRegistry.Get(key)
-	require.True(t, ok)
-	assert.Equal(t, "1.0.0", active.Meta.Version)
-}
-
 const dryRunPluginSource = `
 export const meta = {apiVersion: 1, key: "dryrun-probe", name: "DryRun", version: "1.0.0", author: {name: "Test"}, models: ["doc-1"], fetchMode: "per_task"};
 export function buildSubmitRequest(payload) {
@@ -963,18 +943,22 @@ export function parseTaskResult() { return {}; }
 }
 
 func TestDeletePureFactoryPluginIsRejected(t *testing.T) {
-	setupTaskPluginControllerTest(t)
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Params = gin.Params{{Key: "key", Value: "kling"}, {Key: "version", Value: "1.0.0"}}
-	context.Request = httptest.NewRequest(http.MethodDelete, "/api/plugin/task/kling/versions/1.0.0", nil)
+	for _, query := range []string{"", "?force=true"} {
+		t.Run(query, func(t *testing.T) {
+			setupTaskPluginControllerTest(t)
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Params = gin.Params{{Key: "key", Value: "kling"}, {Key: "version", Value: "1.0.0"}}
+			context.Request = httptest.NewRequest(http.MethodDelete, "/api/plugin/task/kling/versions/1.0.0"+query, nil)
 
-	DeleteTaskPluginVersion(context)
+			DeleteTaskPluginVersion(context)
 
-	assert.Contains(t, recorder.Body.String(), `"success":false`)
-	assert.Contains(t, recorder.Body.String(), "factory plugins cannot be deleted")
-	_, ok := jsplugin.DefaultRegistry.Get("kling")
-	assert.True(t, ok)
+			assert.Contains(t, recorder.Body.String(), `"success":false`)
+			assert.Contains(t, recorder.Body.String(), "factory plugins cannot be deleted")
+			_, ok := jsplugin.DefaultRegistry.Get("kling")
+			assert.True(t, ok)
+		})
+	}
 }
 
 func TestUploadTaskPluginSourceSha256(t *testing.T) {
@@ -1145,4 +1129,107 @@ func TestUpdateTaskPluginMarketplaceSourcesValidation(t *testing.T) {
 			assert.Zero(t, count)
 		})
 	}
+}
+
+func TestTaskPluginDisplayOrderAndMetadata(t *testing.T) {
+	setupTaskPluginControllerTest(t)
+	const website = "https://example.com/plugins"
+	keys := []string{"display-low", "display-zero", "display-beta", "display-alpha"}
+	priorities := []int{-10, 0, 50, 50}
+	for i, key := range keys {
+		source := strings.Replace(taskPluginControllerTestSource(key, "1.0.0"), "apiVersion: 1,", fmt.Sprintf("apiVersion: 1, sortPriority: %d, website: %q,", priorities[i], website), 1)
+		_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+		require.NoError(t, err)
+		cleanupTaskPluginControllerRuntime(t, key)
+		require.NoError(t, model.SaveTaskPlugin(&model.TaskPlugin{Key: key, Version: "1.0.0", APIVersion: 1, Source: source, Enabled: true}))
+	}
+	for _, endpoint := range []string{"list", "options"} {
+		t.Run(endpoint, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+			var metas []jsplugin.Meta
+			if endpoint == "list" {
+				ListTaskPlugins(context)
+				var response struct {
+					Success bool
+					Data    []taskPluginListItem
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+				require.True(t, response.Success)
+				for _, item := range response.Data {
+					metas = append(metas, item.Meta)
+				}
+			} else {
+				GetTaskPluginOptions(context)
+				var response struct {
+					Success bool
+					Data    []jsplugin.Meta
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+				require.True(t, response.Success)
+				metas = response.Data
+			}
+			var ordered []string
+			for _, meta := range metas {
+				if strings.HasPrefix(meta.Key, "display-") {
+					ordered = append(ordered, meta.Key)
+					assert.Equal(t, website, meta.Website)
+				}
+			}
+			assert.Equal(t, []string{"display-alpha", "display-beta", "display-zero", "display-low"}, ordered)
+		})
+	}
+}
+
+func TestUploadTaskPluginStoresSidecarIconAndServesIt(t *testing.T) {
+	setupTaskPluginControllerTest(t)
+	const key = "icon-sidecar"
+	source := taskPluginControllerTestSource(key, "1.0.0")
+	t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(key) })
+	svgIcon := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>`))
+	upload := func(icon string) *httptest.ResponseRecorder {
+		body, err := common.Marshal(map[string]any{"source": source, "icon": icon})
+		require.NoError(t, err)
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(http.MethodPost, "/api/plugin/task", bytes.NewReader(body))
+		context.Request.Header.Set("Content-Type", "application/json")
+		UploadTaskPlugin(context)
+		return recorder
+	}
+
+	rejected := upload("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>`)))
+	assert.Contains(t, rejected.Body.String(), `"success":false`)
+	assert.Contains(t, rejected.Body.String(), "script")
+	_, err := model.GetTaskPluginVersion(key, "1.0.0")
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound, "a rejected icon must not store the plugin")
+
+	accepted := upload(svgIcon)
+	require.Contains(t, accepted.Body.String(), `"success":true`)
+	assert.Contains(t, accepted.Body.String(), `"has_icon":true`)
+	assert.NotContains(t, accepted.Body.String(), "base64,", "icon bytes never travel inside detail JSON")
+	stored, err := model.GetTaskPluginVersion(key, "1.0.0")
+	require.NoError(t, err)
+	assert.Equal(t, svgIcon, stored.Icon)
+
+	item := listTaskPluginItem(t, key)
+	assert.True(t, item.HasIcon)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Params = gin.Params{{Key: "key", Value: key}}
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/plugin/task/"+key+"/icon", nil)
+	GetTaskPluginIcon(context)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "image/svg+xml", recorder.Header().Get("Content-Type"))
+	assert.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
+	assert.Contains(t, recorder.Body.String(), "<circle")
+
+	missing := httptest.NewRecorder()
+	context, _ = gin.CreateTestContext(missing)
+	context.Params = gin.Params{{Key: "key", Value: "no-such-plugin"}}
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/plugin/task/no-such-plugin/icon", nil)
+	GetTaskPluginIcon(context)
+	assert.Equal(t, http.StatusNotFound, missing.Code)
 }

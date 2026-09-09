@@ -273,16 +273,30 @@ function stripExprVersion(exprStr: string): { version: number; body: string } {
   return { version: 1, body: exprStr }
 }
 
-function parseTierBody(bodyStr: string): Record<string, number> {
+function parseTierBody(bodyStr: string): Record<string, number> | null {
   const coeffs: Record<string, number> = {}
   const re = new RegExp(BILLING_VAR_REGEX.source, 'g')
+  let end = 0
   let m
   while ((m = re.exec(bodyStr)) !== null) {
-    if (!(m[1] in coeffs)) coeffs[m[1]] = Number(m[2])
+    const separator = bodyStr.slice(end, m.index).trim()
+    const value = Number(m[2])
+    if (
+      separator !== (end === 0 ? '' : '+') ||
+      !NUMERIC_LITERAL_REGEX.test(m[2]) ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      Object.hasOwn(coeffs, m[1])
+    ) {
+      return null
+    }
+    coeffs[m[1]] = value
+    end = re.lastIndex
   }
+  if (end === 0 || bodyStr.slice(end).trim()) return null
   const tier: Record<string, number> = {}
   for (const [varName, field] of Object.entries(BILLING_VAR_KEY_TO_FIELD)) {
-    tier[field] = coeffs[varName] || 0
+    if (Object.hasOwn(coeffs, varName)) tier[field] = coeffs[varName]
   }
   return tier
 }
@@ -290,7 +304,8 @@ function parseTierBody(bodyStr: string): Record<string, number> {
 export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
   if (!exprStr) return []
   try {
-    const { body } = stripExprVersion(exprStr)
+    const versioned = stripExprVersion(exprStr.trim())
+    const body = unwrapOuterParens(versioned.body)
     const condGroup =
       `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)` +
       `(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*)`
@@ -299,14 +314,21 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
       'g'
     )
     const tiers: ParsedTier[] = []
+    let end = 0
     let m
     while ((m = tierRe.exec(body)) !== null) {
+      // Only summarize an entire linear tier chain. Extracting a price from
+      // inside max(), an unknown condition, or a trailing multiplier lies
+      // about what the expression actually charges.
+      if (body.slice(end, m.index).trim() !== (end === 0 ? '' : ':')) return []
+      if (tiers.length > 0 && tiers.at(-1)?.conditions.length === 0) return []
       const condStr = m[1] || ''
       const conditions: TierCondition[] = []
       if (condStr) {
         for (const cp of condStr.split(/\s*&&\s*/)) {
           const cm = cp.trim().match(/^(p|c|len)\s*(<|<=|>|>=)\s*([\d.eE+]+)$/)
           if (cm) {
+            if (!Number.isFinite(Number(cm[3]))) return []
             conditions.push({
               var: cm[1] as TierCondition['var'],
               op: cm[2] as TierCondition['op'],
@@ -315,11 +337,12 @@ export function parseTiersFromExpr(exprStr: string): ParsedTier[] {
           }
         }
       }
-      const tier = parseTierBody(m[3]) as ParsedTier
-      tier.label = m[2]
-      tier.conditions = conditions
-      tiers.push(tier)
+      const prices = parseTierBody(m[3])
+      if (!prices) return []
+      tiers.push({ ...prices, label: m[2], conditions })
+      end = tierRe.lastIndex
     }
+    if (body.slice(end).trim() || tiers.at(-1)?.conditions.length) return []
     return tiers
   } catch {
     return []
@@ -462,24 +485,34 @@ function splitTaskTopLevel(expression: string, operator: '&&' | '+'): string[] {
 
 function parseTaskConditions(
   expression: string,
-  schema: BillingUsageSchema
+  schema: BillingUsageSchema,
+  includeBooleanConditions: boolean
 ): TaskTierCondition[] | null {
   const conditions: TaskTierCondition[] = []
   for (const part of splitTaskTopLevel(expression, '&&')) {
     const match = part.match(
-      /^u\(\s*("(?:[^"\\]|\\.)*")\s*\)\s*==\s*("(?:[^"\\]|\\.)*")$/
+      /^u\(\s*("(?:[^"\\]|\\.)*")\s*\)\s*==\s*("(?:[^"\\]|\\.)*"|true|false)$/
     )
     if (!match) return null
     let field: string
     let value: string
     try {
       field = JSON.parse(match[1]) as string
-      value = JSON.parse(match[2]) as string
+      value = String(JSON.parse(match[2]))
     } catch {
       return null
     }
-    const declaredValues = schema[field]?.enum
-    if (!declaredValues?.includes(value)) return null
+    const definition = schema[field]
+    if (definition?.type === 'boolean') {
+      if (!includeBooleanConditions || !['true', 'false'].includes(match[2])) {
+        return null
+      }
+    } else if (
+      !definition?.enum?.includes(value) ||
+      !match[2].startsWith('"')
+    ) {
+      return null
+    }
     conditions.push({ field, value })
   }
   return conditions.length > 0 ? conditions : null
@@ -554,7 +587,8 @@ function parseTaskTierCall(
 
 export function parseTaskTiersFromExpr(
   exprStr: string,
-  schema: BillingUsageSchema | null | undefined
+  schema: BillingUsageSchema | null | undefined,
+  includeBooleanConditions = false
 ): ParsedTaskTier[] {
   if (!exprStr || !schema || Object.keys(schema).length === 0) return []
   try {
@@ -576,7 +610,8 @@ export function parseTaskTiersFromExpr(
       if (colonIndex < 0) return []
       const conditions = parseTaskConditions(
         remaining.slice(0, questionIndex).trim(),
-        schema
+        schema,
+        includeBooleanConditions
       )
       if (!conditions) return []
       const tier = parseTaskTierCall(

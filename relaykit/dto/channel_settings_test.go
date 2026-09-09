@@ -663,27 +663,6 @@ func TestChannelSettingsValidateHTTPTransport(t *testing.T) {
 	assert.Contains(t, err.Error(), "http2_connection_shards")
 }
 
-func TestChannelSettingsAnthropicMessagesExcludeCacheJSON(t *testing.T) {
-	omitted := ChannelSettings{}
-	encoded, err := json.Marshal(omitted)
-	require.NoError(t, err)
-	assert.NotContains(t, string(encoded), "anthropic_messages_exclude_cache")
-	assert.NotContains(t, string(encoded), "openai_prompt_includes_cache")
-
-	var decoded ChannelSettings
-	require.NoError(t, json.Unmarshal([]byte(`{"proxy":"http://127.0.0.1:8080"}`), &decoded))
-	assert.False(t, decoded.AnthropicMessagesExcludeCache)
-
-	enabled := ChannelSettings{AnthropicMessagesExcludeCache: true}
-	encoded, err = json.Marshal(enabled)
-	require.NoError(t, err)
-	assert.Contains(t, string(encoded), `"anthropic_messages_exclude_cache":true`)
-
-	var enabledDecoded ChannelSettings
-	require.NoError(t, json.Unmarshal(encoded, &enabledDecoded))
-	assert.True(t, enabledDecoded.AnthropicMessagesExcludeCache)
-}
-
 func TestChannelSettingsStripAnthropicBillingHeaderJSON(t *testing.T) {
 	omitted := ChannelSettings{}
 	encoded, err := json.Marshal(omitted)
@@ -702,4 +681,16 @@ func TestChannelSettingsStripAnthropicBillingHeaderJSON(t *testing.T) {
 	var enabledDecoded ChannelSettings
 	require.NoError(t, json.Unmarshal(encoded, &enabledDecoded))
 	assert.True(t, enabledDecoded.StripAnthropicBillingHeader)
+}
+
+func TestChannelOtherSettingsValidateToolLossPolicy(t *testing.T) {
+	require.NoError(t, (*ChannelOtherSettings)(nil).ValidateToolLossPolicy())
+	require.NoError(t, (&ChannelOtherSettings{}).ValidateToolLossPolicy())
+	require.NoError(t, (&ChannelOtherSettings{ToolLossPolicy: "allow"}).ValidateToolLossPolicy())
+	require.NoError(t, (&ChannelOtherSettings{ToolLossPolicy: "safe"}).ValidateToolLossPolicy())
+	require.NoError(t, (&ChannelOtherSettings{ToolLossPolicy: "strict"}).ValidateToolLossPolicy())
+
+	err := (&ChannelOtherSettings{ToolLossPolicy: "drop"}).ValidateToolLossPolicy()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool_loss_policy")
 }

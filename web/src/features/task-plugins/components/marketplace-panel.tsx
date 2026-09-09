@@ -259,6 +259,7 @@ function MarketplaceSourceSection(props: MarketplaceSourceSectionProps) {
               <MarketplacePluginCard
                 key={plugin.key}
                 plugin={plugin}
+                indexUrl={props.source.index_url}
                 installState={installState}
                 installed={props.installed.find(
                   (item) => item.meta.key === plugin.key

@@ -75,11 +75,13 @@ func TestRecordConsumeLogPersistsDurationMs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			otherMetadata := NewLogOther()
+			otherMetadata.MergePublic(tc.other)
 			RecordConsumeLog(newDurationTestContext(), 1, RecordConsumeLogParams{
 				ModelName:     "gpt-test",
 				Content:       "test",
 				UseTimeMillis: tc.useTimeMillis,
-				Other:         tc.other,
+				Other:         otherMetadata,
 			})
 
 			var log Log
@@ -102,8 +104,10 @@ func TestRecordConsumeLogPersistsDurationMs(t *testing.T) {
 func TestRecordErrorLogPersistsDurationMs(t *testing.T) {
 	setupDurationLogDB(t)
 
+	metadata := NewLogOther()
+	metadata.SetPublic("error_code", "500")
 	RecordErrorLog(newDurationTestContext(), 1, 2, "gpt-test", "tok", "boom", 3,
-		1543, false, "default", map[string]interface{}{"error_code": "500"})
+		1543, false, "default", metadata)
 
 	var log Log
 	require.NoError(t, DB.Last(&log).Error)

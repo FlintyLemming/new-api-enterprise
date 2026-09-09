@@ -388,9 +388,6 @@ func TestRegistryNoOpMutationsKeepCurrentGeneration(t *testing.T) {
 	require.NoError(t, registry.ReplaceOverrides([]*LoadedPlugin{plugin}))
 	assert.Same(t, current, registry.Generation())
 
-	registry.SetOverrideEnabled(true)
-	assert.Same(t, current, registry.Generation())
-
 	require.NoError(t, registry.Unregister("missing"))
 	assert.Same(t, current, registry.Generation())
 }
@@ -684,23 +681,6 @@ func TestRejectedNewOverrideRetainsFactoryIncumbent(t *testing.T) {
 	assert.Same(t, conflictingOverride, registry.OverridePlugins()["factory-fallback"])
 	assert.NotContains(t, registry.ActiveOverridePlugins(), "factory-fallback")
 	assert.Contains(t, registry.RoutingErrors()["factory-fallback"], "channelType 122 conflicts")
-}
-
-func TestDisablingOverridesPublishesFactoryInsteadOfRetainingOverride(t *testing.T) {
-	registry := NewRegistry()
-	factorySource := routingTestPluginSource("switchable", 93, `["factory"]`, "", "")
-	factory, err := registry.RegisterFactory(factorySource, Options{})
-	require.NoError(t, err)
-	override := mustCompileRoutingPlugin(t, "switchable", 94, `["override"]`, "", "")
-	require.NoError(t, registry.ReplaceOverrides([]*LoadedPlugin{override}))
-
-	registry.SetOverrideEnabled(false)
-
-	active, ok := registry.Get("switchable")
-	require.True(t, ok)
-	assert.Same(t, factory, active)
-	assert.Same(t, override, registry.OverridePlugins()["switchable"])
-	assert.Empty(t, registry.ActiveOverridePlugins())
 }
 
 func TestGenericChannelTypesDoNotCreateLegacyIdentityConflicts(t *testing.T) {

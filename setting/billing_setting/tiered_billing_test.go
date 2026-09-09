@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,7 +83,7 @@ func TestSmokeTestTaskExprValidatesDeclaredUsageVectors(t *testing.T) {
 func TestSmokeTestTaskExprCapsOversizedEnumProductsAtLastCombination(t *testing.T) {
 	schema := make(map[string]jsplugin.UsageFieldSchema, 7)
 	condition := ""
-	for index := 0; index < 7; index++ {
+	for index := range 7 {
 		schema[fmt.Sprintf("enum_%d", index)] = jsplugin.UsageFieldSchema{Enum: []string{"first", "middle", "last"}}
 		if condition != "" {
 			condition += " && "

@@ -42,8 +42,9 @@ import {
   tryParseTaskVisualConfig,
 } from './task-expr'
 
-type DynamicPriceOptions = {
+export type DynamicPriceOptions = {
   tokenUnit: TokenUnit
+  showCurrencySymbol?: boolean
   showRechargePrice?: boolean
   priceRate?: number
   usdExchangeRate?: number
@@ -189,6 +190,7 @@ export function formatDynamicUnitPrice(
   )
 
   return formatBillingCurrencyFromUSD(displayPrice, {
+    showSymbol: options.showCurrencySymbol ?? true,
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -211,6 +213,7 @@ export function formatTaskUsageUnitPrice(
   )
 
   return formatBillingCurrencyFromUSD(displayPrice, {
+    showSymbol: options.showCurrencySymbol ?? true,
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
@@ -225,7 +228,7 @@ export function getDynamicPricingTiers(
     model.billing_expr || ''
   )
   if (isTaskUsagePricingModel(model)) {
-    return parseTaskTiersFromExpr(billingExpr, model.billing_usage_schema)
+    return parseTaskTiersFromExpr(billingExpr, model.billing_usage_schema, true)
   }
   return parseTiersFromExpr(billingExpr)
 }
@@ -249,7 +252,7 @@ export function getDynamicPriceEntries(
       options.usageSchema
     ).flatMap(([field, definition]) => {
       const value = Number(tier.unitPrices[field])
-      if (!Number.isFinite(value) || value <= 0 || !definition.unit) return []
+      if (!Number.isFinite(value) || value < 0 || !definition.unit) return []
       return [
         {
           key: field,
@@ -268,8 +271,8 @@ export function getDynamicPriceEntries(
       usageEntries.push({
         key: 'constant',
         field: 'constant',
-        label: 'Base charge',
-        shortLabel: 'Base',
+        label: 'Additional charge',
+        shortLabel: 'Additional charge',
         labelKind: 'i18n',
         value: tier.constant,
         formatted: formatTaskUsageUnitPrice(tier.constant, options),
@@ -282,7 +285,7 @@ export function getDynamicPriceEntries(
   return BILLING_PRICING_VARS.flatMap((variable) => {
     if (!variable.field) return []
     const value = Number((tier as ParsedTier)[variable.field])
-    if (!Number.isFinite(value) || value <= 0) return []
+    if (!Number.isFinite(value) || value < 0) return []
 
     return [
       {
@@ -326,7 +329,7 @@ export function getDynamicPricingSummary(
       for (const taskTier of tiers) {
         if (!isTaskPricingTier(taskTier)) continue
         const value = Number(taskTier.unitPrices[field])
-        if (!Number.isFinite(value) || value <= 0) continue
+        if (!Number.isFinite(value) || value < 0) continue
         min = Math.min(min, value)
         max = Math.max(max, value)
       }
@@ -339,7 +342,7 @@ export function getDynamicPricingSummary(
       if (!range || range.min === range.max) return entry
       return {
         ...entry,
-        formattedRange: `${formatTaskUsageUnitPrice(range.min, options)}–${formatTaskUsageUnitPrice(range.max, options)}`,
+        formattedRange: `${formatTaskUsageUnitPrice(range.min, options)} – ${formatTaskUsageUnitPrice(range.max, options)}`,
       }
     })
   }

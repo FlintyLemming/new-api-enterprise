@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
 
-import { describe, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { getBillingModeLabelKey } from '../lib/billing-mode'
 import {
@@ -51,6 +51,69 @@ const summaryOptions = {
   usdExchangeRate: 6,
   groupRatioMultiplier: 2,
 }
+
+describe('expression price summaries', () => {
+  test('preserves a versioned parenthesized base price and its request rule', () => {
+    const summary = getDynamicPricingSummary(
+      pricingModel({
+        billing_mode: 'tiered_expr',
+        billing_expr:
+          'v1:(tier("base", p * 2 + c * 8)) * (header("x-priority") == "high" ? 2 : 1)',
+      }),
+      { tokenUnit: 'M' }
+    )
+    expect(summary?.isSpecialExpression).toBe(false)
+    expect(summary?.primaryEntries.map((entry) => entry.value)).toEqual([2, 8])
+    expect(summary?.hasRequestRules).toBe(true)
+  })
+  test.each([
+    'tier("custom", max(p * 2 + c * 8, 100))',
+    'tier("base", p * 2 + c * 8) * 3',
+    'param("premium") ? tier("pro", p * 4 + c * 16) : tier("base", p * 2 + c * 8)',
+    'tier("overflow", p * 1e999 + c * 8)',
+  ])('does not invent structured prices from %s', (expression) => {
+    const summary = getDynamicPricingSummary(
+      pricingModel({ billing_mode: 'tiered_expr', billing_expr: expression }),
+      { tokenUnit: 'M' }
+    )
+    expect(summary?.isSpecialExpression).toBe(true)
+    expect(summary?.entries).toEqual([])
+  })
+
+  test('retains explicit zero token rates while omitting absent categories', () => {
+    const summary = getDynamicPricingSummary(
+      pricingModel({
+        billing_mode: 'tiered_expr',
+        billing_expr: 'tier("free", p * 0 + c * 0)',
+      }),
+      { tokenUnit: 'M' }
+    )
+    expect(
+      summary?.primaryEntries.map((entry) => [entry.field, entry.value])
+    ).toEqual([
+      ['inputPrice', 0],
+      ['outputPrice', 0],
+    ])
+    expect(summary?.secondaryEntries).toEqual([])
+  })
+
+  test('includes a free task tier in its range', () => {
+    const summary = getDynamicPricingSummary(
+      pricingModel({
+        billing_mode: 'tiered_expr',
+        billing_expr:
+          'u("mode") == "pro" ? tier("pro", u("seconds") * 0.8) : tier("free", u("seconds") * 0)',
+        billing_usage_schema: {
+          seconds: { type: 'number', unit: 'second' },
+          mode: { enum: ['free', 'pro'] },
+        },
+      }),
+      { tokenUnit: 'M' }
+    )
+    expect(summary?.primaryEntries[0]?.value).toBe(0)
+    expect(summary?.primaryEntries[0]?.formattedRange).toBe('$0 – $0.8')
+  })
+})
 
 describe('task dynamic pricing', () => {
   test('treats task coefficients as dollars per unit without a token divisor', () => {
@@ -108,7 +171,7 @@ describe('task dynamic pricing', () => {
     assert.ok(summary)
     assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /0[.,]4/)
     assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /0[.,]8/)
-    assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /–/)
+    assert.match(summary.primaryEntries[0]?.formattedRange ?? '', /\S – \S/)
     assert.match(summary.primaryEntries[0]?.formatted ?? '', /0[.,]4/)
   })
 
@@ -319,7 +382,10 @@ describe('task dynamic pricing', () => {
     assert.ok(tokenSummary)
     assert.equal(tokenSummary.primaryEntries[0]?.shortLabel, 'tokens')
     assert.equal(tokenSummary.primaryEntries[0]?.labelKind, 'schema')
-    assert.equal(tokenSummary.secondaryEntries[0]?.shortLabel, 'Base')
+    assert.equal(
+      tokenSummary.secondaryEntries[0]?.shortLabel,
+      'Additional charge'
+    )
     assert.equal(tokenSummary.secondaryEntries[0]?.labelKind, 'i18n')
 
     const multiFieldModel = pricingModel({

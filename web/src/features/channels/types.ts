@@ -80,9 +80,9 @@ export type Channel = z.infer<typeof channelSchema>
 // ============================================================================
 
 export interface ChannelSettings {
+  task_plugin_key?: string
   force_format?: boolean
   thinking_to_content?: boolean
-  anthropic_messages_exclude_cache?: boolean
   strip_anthropic_billing_header?: boolean
   proxy?: string
   pass_through_body_enabled?: boolean

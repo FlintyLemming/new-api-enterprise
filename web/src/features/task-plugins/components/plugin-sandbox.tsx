@@ -6,6 +6,7 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
+import { Combobox } from '@/components/ui/combobox'
 import { useMutation } from '@tanstack/react-query'
 import { Play } from 'lucide-react'
 import { useState } from 'react'
@@ -16,14 +17,7 @@ import {
   CodeBlockEditor,
 } from '@/components/ai-elements/code-block'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+
 
 import { dryRunTaskPlugin } from '../api'
 
@@ -64,20 +58,12 @@ export function PluginSandbox(props: { pluginKey: string }) {
 
   return (
     <div className='flex flex-col gap-4'>
-      <Select value={hook} onValueChange={(value) => setHook(value ?? '')}>
-        <SelectTrigger aria-label={t('Hook')}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {hooks.map((item) => (
-              <SelectItem key={item} value={item}>
-                {item}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
+      <Combobox
+  options={hooks.map((item) => ({ value: item, label: item }))}
+  value={hook}
+  onValueChange={(value) => setHook(value ?? '')}
+  aria-label={t('Hook')}
+/>
       <CodeBlockEditor
         ariaLabel={t('Arguments JSON')}
         language='json'

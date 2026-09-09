@@ -1,6 +1,7 @@
 package jsplugin
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"testing"
@@ -31,22 +32,6 @@ func TestRegistryUnregisterFallsBackToFactory(t *testing.T) {
 	plugin, ok := registry.Get("test")
 	require.True(t, ok)
 	assert.Equal(t, "1.0.0-factory", plugin.Meta.Version)
-}
-
-func TestRegistryDisabledOverrideFallsBackToFactoryAndCanBeRestored(t *testing.T) {
-	registry := NewRegistry()
-	require.NoError(t, registerTestPlugin(registry, "1.0.0-factory", true))
-	require.NoError(t, registerTestPlugin(registry, "1.0.0-override", false))
-
-	registry.SetOverrideEnabled(false)
-	plugin, ok := registry.Get("test")
-	require.True(t, ok)
-	assert.Equal(t, "1.0.0-factory", plugin.Meta.Version)
-
-	registry.SetOverrideEnabled(true)
-	plugin, ok = registry.Get("test")
-	require.True(t, ok)
-	assert.Equal(t, "1.0.0-override", plugin.Meta.Version)
 }
 
 func TestRegistrySnapshotSeparatesLayersWithoutExposingEntries(t *testing.T) {
@@ -340,6 +325,47 @@ func TestRegistryDecodesAndValidatesUsageSchema(t *testing.T) {
 		}
 		require.ErrorContains(t, ValidateV1Meta(meta), "cannot combine enum with type or unit")
 	})
+}
+
+func TestUsageEnumLabelsContract(t *testing.T) {
+	source := routingTestPluginSource("enum-labels", 0, `["model"]`, `usageSchema: {
+		mode: {enum: ["none", "video", "other"], enumLabels: {none: "No video", video: {EN: " With video ", zh: "有参考视频"}}}
+	},`, "")
+	registry := NewRegistry()
+	plugin, err := registry.Register(source, Options{})
+	require.NoError(t, err)
+	labels := plugin.Meta.UsageSchema["mode"].EnumLabels
+	assert.Equal(t, LocalizedText{"en": "No video"}, labels["none"])
+	assert.Equal(t, LocalizedText{"en": "With video", "zh": "有参考视频"}, labels["video"])
+	assert.NotContains(t, labels, "other")
+
+	wire, err := common.Marshal(plugin.Meta.UsageSchema)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"mode":{"enum":["none","video","other"],"enumLabels":{"none":{"en":"No video"},"video":{"en":"With video","zh":"有参考视频"}}}}`, string(wire))
+	snapshot := registry.Snapshot()
+	require.Len(t, snapshot.Override, 1)
+	snapshot.Override[0].UsageSchema["mode"].EnumLabels["video"]["en"] = "Changed"
+	delete(snapshot.Override[0].UsageSchema["mode"].EnumLabels, "none")
+	current := registry.Snapshot().Override[0].UsageSchema["mode"].EnumLabels
+	assert.Equal(t, "With video", current["video"]["en"])
+	assert.Contains(t, current, "none")
+
+	for _, tc := range []struct{ name, field, message string }{
+		{"unknown enum value", `{enum:["a"],enumLabels:{b:"B"}}`, "undeclared enum value"},
+		{"numeric field", `{type:"number",unit:"count",enumLabels:{}}`, "enumLabels requires enum"},
+		{"boolean field", `{type:"boolean",enumLabels:{true:"Yes"}}`, "enumLabels requires enum"},
+		{"missing English", `{enum:["a"],enumLabels:{a:{zh:"中文"}}}`, `must include a non-empty "en"`},
+		{"null map", `{enum:["a"],enumLabels:null}`, "enumLabels must be an object"},
+		{"null label", `{enum:["a"],enumLabels:{a:null}}`, "must be a string or object"},
+		{"empty label", `{enum:["a"],enumLabels:{a:" "}}`, "non-empty string"},
+		{"invalid locale", `{enum:["a"],enumLabels:{a:{en:"A",zh_CN:"甲"}}}`, "invalid locale"},
+		{"too long", `{enum:["a"],enumLabels:{a:"` + strings.Repeat("x", 257) + `"}}`, "must not exceed 256 characters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := CompilePlugin(routingTestPluginSource("invalid-labels", 0, `["model"]`, "usageSchema: {mode: "+tc.field+"},", ""), Options{})
+			require.ErrorContains(t, err, tc.message)
+		})
+	}
 }
 
 func TestRegistryValidatesUsageExamples(t *testing.T) {
@@ -858,4 +884,177 @@ func TestLocalizedTextContract(t *testing.T) {
 		assert.Equal(t, "Video generation via the vendor API", plugin.Meta.Description["en"])
 		assert.Equal(t, "Generated media duration.", plugin.Meta.UsageSchema["seconds"].Description["en"])
 	})
+}
+
+func TestRegistryNormalizesBaseURL(t *testing.T) {
+	absent, err := CompilePlugin(routingTestPluginSource("base-url-absent", 0, `["model"]`, "", ""), Options{})
+	require.NoError(t, err)
+	assert.Empty(t, absent.Meta.BaseURL)
+
+	_, err = CompilePlugin(routingTestPluginSource("base-url-type", 0, `["model"]`, "baseUrl: 1,", ""), Options{})
+	require.ErrorContains(t, err, "baseUrl must be a string")
+
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		wantError string
+	}{
+		{name: "https accepted", input: "https://api.example.com", want: "https://api.example.com"},
+		{name: "http accepted", input: "http://api.example.com", want: "http://api.example.com"},
+		{name: "loopback with port accepted", input: "http://127.0.0.1:8000", want: "http://127.0.0.1:8000"},
+		{name: "ipv6 literal with port and path accepted", input: "http://[::1]:8000/api/", want: "http://[::1]:8000/api"},
+		{name: "trailing slashes stripped", input: "https://api.example.com/v1//", want: "https://api.example.com/v1"},
+		{name: "scheme and host lowercased, path preserved", input: "HTTPS://API.Example.COM/V1", want: "https://api.example.com/V1"},
+		{name: "userinfo rejected", input: "https://user:pass@api.example.com", wantError: "credentials"},
+		{name: "query rejected", input: "https://api.example.com/?x=1", wantError: "query or fragment"},
+		{name: "fragment rejected", input: "https://api.example.com/#x", wantError: "query or fragment"},
+		{name: "non-http scheme rejected", input: "ftp://api.example.com", wantError: "http or https"},
+		{name: "relative value rejected", input: "/v1", wantError: "absolute"},
+		{name: "non-ascii host rejected", input: "https://例子.com", wantError: "ASCII"},
+		{name: "embedded whitespace rejected", input: "https://api.example.com/a b", wantError: "whitespace"},
+		{name: "192 characters rejected", input: "https://api.example.com/" + strings.Repeat("a", 168), wantError: "191"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loaded, err := CompilePlugin(routingTestPluginSource("base-url", 0, `["model"]`, fmt.Sprintf("baseUrl: %q,", test.input), ""), Options{})
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.want, loaded.Meta.BaseURL)
+		})
+	}
+}
+
+func TestRegistryNormalizesAllowedHosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		hosts     string
+		want      []string
+		wantError string
+	}{
+		{name: "hostname lowercased", hosts: `["Upload.Example.com"]`, want: []string{"upload.example.com"}},
+		{name: "host with port accepted", hosts: `["upload.example.com:8443"]`, want: []string{"upload.example.com:8443"}},
+		{name: "bracketed ipv6 with port accepted", hosts: `["[::1]:8080"]`, want: []string{"[::1]:8080"}},
+		{name: "bracketed ipv6 accepted", hosts: `["[::1]"]`, want: []string{"[::1]"}},
+		{name: "bare ipv6 normalized to brackets", hosts: `["::1"]`, want: []string{"[::1]"}},
+		{name: "scheme rejected", hosts: `["https://upload.example.com"]`, wantError: "without schemes"},
+		{name: "path rejected", hosts: `["upload.example.com/v1"]`, wantError: "without schemes"},
+		{name: "credentials rejected", hosts: `["user@upload.example.com"]`, wantError: "without schemes"},
+		{name: "port out of range rejected", hosts: `["upload.example.com:99999"]`, wantError: "between 1 and 65535"},
+		{name: "non-numeric port rejected", hosts: `["upload.example.com:abc"]`, wantError: "between 1 and 65535"},
+		{name: "malformed ipv6 rejected", hosts: `["fe80::1::2"]`, wantError: "bracketed"},
+		{name: "duplicate after normalization rejected", hosts: `["a.example.com", "A.example.com"]`, wantError: "unique"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			loaded, err := CompilePlugin(routingTestPluginSource("hosts", 0, `["model"]`, "allowedHosts: "+test.hosts+",", ""), Options{})
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.want, loaded.Meta.AllowedHosts)
+		})
+	}
+}
+
+func TestRegistryRejectsImageReferencesInMetaIcon(t *testing.T) {
+	for _, icon := range []string{"data:image/png;base64,iVBORw0KGgo=", "https://example.com/icon.png"} {
+		_, err := CompilePlugin(routingTestPluginSource("icon-ref", 0, `["model"]`, fmt.Sprintf("icon: %q,", icon), ""), Options{})
+		require.ErrorContains(t, err, "icon.svg or icon.png file")
+	}
+}
+
+func TestDecodeIconDataURI(t *testing.T) {
+	svg := func(body string) string {
+		return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(body))
+	}
+	pngBytes := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, make([]byte, 16)...)
+	tests := []struct {
+		name      string
+		icon      string
+		wantType  string
+		wantError string
+	}{
+		{name: "small svg accepted", icon: svg(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 16 16"><defs><circle id="a" cx="8" cy="8" r="6" fill="#0af"/></defs><use xlink:href="#a"/><style>@media (prefers-color-scheme: dark) { circle { fill: #fff } }</style></svg>`), wantType: "image/svg+xml"},
+		{name: "small png accepted", icon: "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes), wantType: "image/png"},
+		{name: "svg script element rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`), wantError: "script"},
+		{name: "svg foreignObject rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div/></foreignObject></svg>`), wantError: "foreignObject"},
+		{name: "svg event handler attribute rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>`), wantError: "event handler"},
+		{name: "svg external image href rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/a.png"/></svg>`), wantError: "external"},
+		{name: "svg javascript href with entity split rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg"><a href="java&#10;script:alert(1)"><text>x</text></a></svg>`), wantError: "external"},
+		{name: "svg style import rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(evil.css)</style></svg>`), wantError: "external"},
+		{name: "svg doctype rejected", icon: svg(`<!DOCTYPE svg [<!ENTITY x "y">]><svg xmlns="http://www.w3.org/2000/svg"/>`), wantError: "DOCTYPE"},
+		{name: "non-svg root rejected", icon: svg(`<html><svg/></html>`), wantError: "root element"},
+		{name: "malformed svg rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg"><g></svg>`), wantError: "well-formed"},
+		{name: "non-image media type rejected", icon: "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte("<b>x</b>")), wantError: "image/png"},
+		{name: "charset parameter rejected", icon: "data:image/svg+xml;charset=utf-8;base64," + base64.StdEncoding.EncodeToString([]byte("<svg/>")), wantError: "image/png"},
+		{name: "missing data prefix rejected", icon: "image/png;base64,iVBORw0KGgo=", wantError: "image/png"},
+		{name: "malformed base64 rejected", icon: "data:image/png;base64,@@@", wantError: "base64"},
+		{name: "png signature enforced", icon: "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("not a png")), wantError: "not a PNG"},
+		{name: "oversize payload rejected", icon: svg(`<svg xmlns="http://www.w3.org/2000/svg">` + strings.Repeat("<g/>", 140000) + `</svg>`), wantError: "must not exceed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mediaType, data, err := DecodeIconDataURI(test.icon)
+			if test.wantError != "" {
+				require.ErrorContains(t, err, test.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantType, mediaType)
+			assert.NotEmpty(t, data)
+		})
+	}
+}
+
+func TestPluginDisplayMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields string
+		priority     int
+		website      string
+		invalid      bool
+	}{
+		{name: "omitted"},
+		{name: "zero and empty", fields: `sortPriority: 0, website: "",`},
+		{name: "positive", fields: `sortPriority: 20, website: " https://example.com/docs?q=1#intro ",`, priority: 20, website: "https://example.com/docs?q=1#intro"},
+		{name: "minimum", fields: `sortPriority: -2147483648,`, priority: -2147483648},
+		{name: "maximum", fields: `sortPriority: 2147483647,`, priority: 2147483647},
+		{name: "underflow", fields: `sortPriority: -2147483649,`, invalid: true},
+		{name: "overflow", fields: `sortPriority: 2147483648,`, invalid: true},
+		{name: "fraction", fields: `sortPriority: 1.5,`, invalid: true},
+		{name: "numeric string", fields: `sortPriority: "1",`, invalid: true},
+		{name: "null priority", fields: `sortPriority: null,`, invalid: true},
+		{name: "nonfinite", fields: `sortPriority: Infinity,`, invalid: true},
+		{name: "website type", fields: `website: 1,`, invalid: true},
+		{name: "http", fields: `website: "http://example.com",`, invalid: true},
+		{name: "relative", fields: `website: "/docs",`, invalid: true},
+		{name: "missing host", fields: `website: "https:///docs",`, invalid: true},
+		{name: "credentials", fields: `website: "https://user:pass@example.com",`, invalid: true},
+		{name: "empty credentials", fields: `website: "https://@example.com",`, invalid: true},
+		{name: "javascript", fields: `website: "javascript:alert(1)",`, invalid: true},
+		{name: "invalid host", fields: `website: "https://-example.com",`, invalid: true},
+		{name: "invalid port", fields: `website: "https://example.com:99999",`, invalid: true},
+		{name: "whitespace", fields: `website: "https://example.com/a b",`, invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loaded, err := CompilePlugin(routingTestPluginSource("display", 0, `["model"]`, tc.fields, ""), Options{})
+			if tc.invalid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.priority, loaded.Meta.SortPriority)
+			assert.Equal(t, tc.website, loaded.Meta.Website)
+			encoded, err := common.Marshal(loaded.Meta)
+			require.NoError(t, err)
+			var decoded Meta
+			require.NoError(t, common.Unmarshal(encoded, &decoded))
+			assert.Equal(t, tc.priority, decoded.SortPriority)
+			assert.Equal(t, tc.website, decoded.Website)
+		})
+	}
 }

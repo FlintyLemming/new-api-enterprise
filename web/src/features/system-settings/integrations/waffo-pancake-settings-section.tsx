@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Combobox } from '@/components/ui/combobox'
 import * as React from 'react'
 import type { SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -24,13 +25,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+
 import { Textarea } from '@/components/ui/textarea'
 
 import { removeTrailingSlash } from './utils'
@@ -541,54 +536,36 @@ export function WaffoPancakeSettingsSection({
               <div className='grid grid-cols-2 gap-3'>
                 <div className='grid gap-1.5'>
                   <Label>{t('Store')}</Label>
-                  <Select
-                    items={storeSelectItems}
-                    value={chosenStoreID}
-                    onValueChange={(value) => {
+                  <Combobox
+options={storeSelectItems}
+value={chosenStoreID}
+onValueChange={(value) => {
                       // Base UI Select can deliver null on deselect.
                       onSelectedBindingChange({
                         storeID: value ?? '',
                         productID: '',
                       })
                     }}
-                  >
-                    <SelectTrigger className='w-full'>
-                      <SelectValue placeholder={t('Select a store')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {storeSelectItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+className='w-full'
+placeholder={t('Select a store')}
+/>
                 </div>
 
                 <div className='grid gap-1.5'>
                   <Label>{t('Product')}</Label>
-                  <Select
-                    items={productSelectItems}
-                    value={chosenProductID}
-                    onValueChange={(value) =>
+                  <Combobox
+options={productSelectItems}
+value={chosenProductID}
+onValueChange={(value) =>
                       onSelectedBindingChange((previous) => ({
                         ...previous,
                         productID: value ?? '',
                       }))
                     }
-                    disabled={!chosenStoreID || productSelectItems.length === 0}
-                  >
-                    <SelectTrigger className='w-full'>
-                      <SelectValue placeholder={t('Select a product')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {productSelectItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+disabled={!chosenStoreID || productSelectItems.length === 0}
+className='w-full'
+placeholder={t('Select a product')}
+/>
                 </div>
               </div>
             </>

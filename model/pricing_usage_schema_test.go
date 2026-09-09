@@ -30,7 +30,8 @@ func TestPricingCarriesTaskUsageSchemaAndRefreshesWithPluginGeneration(t *testin
 	resetPricingEndpointTestTables(t)
 	const pluginKey = "pricing-usage-probe"
 	initialSource := pricingUsagePluginSource("1.0.0", `{
-  seconds: {type: "number", unit: "second", description: "Estimated duration."}
+  seconds: {type: "number", unit: "second", description: "Estimated duration."},
+  action: {enum:["video"],enumLabels:{video:{en:"Generate video",zh:"生成视频"}}}
 }`)
 	_, err := jsplugin.DefaultRegistry.Register(initialSource, jsplugin.Options{})
 	require.NoError(t, err)
@@ -45,6 +46,7 @@ func TestPricingCarriesTaskUsageSchemaAndRefreshesWithPluginGeneration(t *testin
 	require.Contains(t, initialPricing, "ordinary-model")
 	assert.Equal(t, "second", initialPricing["pricing-usage-model"].BillingUsageSchema["seconds"].Unit)
 	assert.Equal(t, "Estimated duration.", initialPricing["pricing-usage-model"].BillingUsageSchema["seconds"].Description["en"])
+	assert.Equal(t, "生成视频", initialPricing["pricing-usage-model"].BillingUsageSchema["action"].EnumLabels["video"]["zh"])
 	assert.Nil(t, initialPricing["ordinary-model"].BillingUsageSchema)
 
 	updatedSource := pricingUsagePluginSource("1.1.0", `{

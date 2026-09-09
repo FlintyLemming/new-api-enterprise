@@ -1,9 +1,9 @@
 package oaichat
 
 import (
-	"encoding/json"
-	"math"
 	"testing"
+
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
@@ -15,14 +15,14 @@ func TestResponseOpenAI2ClaudeToolUseInputIsObject(t *testing.T) {
 	tests := []struct {
 		name string
 		args string
-		want map[string]interface{}
+		want map[string]any
 	}{
-		{name: "object", args: `{"q":"x"}`, want: map[string]interface{}{"q": "x"}},
-		{name: "empty", args: "", want: map[string]interface{}{}},
-		{name: "invalid", args: "{", want: map[string]interface{}{}},
-		{name: "null", args: "null", want: map[string]interface{}{}},
-		{name: "array", args: `["x"]`, want: map[string]interface{}{}},
-		{name: "string", args: `"x"`, want: map[string]interface{}{}},
+		{name: "object", args: `{"q":"x"}`, want: map[string]any{"q": "x"}},
+		{name: "empty", args: "", want: map[string]any{}},
+		{name: "invalid", args: "{", want: map[string]any{}},
+		{name: "null", args: "null", want: map[string]any{}},
+		{name: "array", args: `["x"]`, want: map[string]any{}},
+		{name: "string", args: `"x"`, want: map[string]any{}},
 	}
 
 	for _, tt := range tests {
@@ -81,251 +81,23 @@ func TestResponseOpenAI2ClaudeUsageCarriesOpenAIBillingUsage(t *testing.T) {
 	assert.Nil(t, resp.Usage.BillingUsage.OpenAIUsage.BillingUsage)
 }
 
-func switchOnMeta() convmeta.Meta {
-	return &convmeta.Values{
-		Options: &convmeta.Options{
-			Claude: convmeta.ClaudeOptions{AnthropicMessagesExcludeCache: true},
-		},
-	}
-}
-
-func TestBuildClaudeUsageFromAnthropicMessagesExcludeCache(t *testing.T) {
-	anthropicUsage := &dto.ClaudeUsage{
-		InputTokens:          99,
-		OutputTokens:         912,
-		CacheReadInputTokens: 28416,
-	}
-
-	tests := []struct {
-		name              string
-		info              convmeta.Meta
-		oai               dto.Usage
-		wantInput         int
-		wantCacheRead     int
-		wantCacheCreate   int
-		wantBillingPrompt int
-		wantSameClaudePtr bool
-		wantClaudeInput   int
-	}{
-		{
-			name: "switch off cached tokens keeps prompt_tokens",
-			info: nil,
-			oai: dto.Usage{
-				PromptTokens:     30032,
-				CompletionTokens: 912,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens: 28416,
-				},
-			},
-			wantInput:         30032,
-			wantCacheRead:     28416,
-			wantBillingPrompt: 30032,
-		},
-		{
-			name: "switch on subtracts cache read",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     30032,
-				CompletionTokens: 912,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens: 28416,
-				},
-			},
-			wantInput:         1616,
-			wantCacheRead:     28416,
-			wantBillingPrompt: 30032,
-		},
-		{
-			name: "switch on subtracts cache read and cache creation",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     10000,
-				CompletionTokens: 10,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens:         3000,
-					CachedCreationTokens: 2000,
-				},
-			},
-			wantInput:         5000,
-			wantCacheRead:     3000,
-			wantCacheCreate:   2000,
-			wantBillingPrompt: 10000,
-		},
-		{
-			name: "switch off cache_write still clamps overlapping prefixes",
-			info: nil,
-			oai: dto.Usage{
-				PromptTokens:     3619,
-				CompletionTokens: 36,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens:     2921,
-					CacheWriteTokens: 3616,
-				},
-			},
-			wantInput:         0,
-			wantCacheRead:     2921,
-			wantCacheCreate:   3616,
-			wantBillingPrompt: 3619,
-		},
-		{
-			name: "switch on and cache_write subtracts once",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     10000,
-				CompletionTokens: 10,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens:     1000,
-					CacheWriteTokens: 2000,
-				},
-			},
-			wantInput:         7000,
-			wantCacheRead:     1000,
-			wantCacheCreate:   2000,
-			wantBillingPrompt: 10000,
-		},
-		{
-			name: "switch on prompt smaller than cache clamps to zero",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     100,
-				CompletionTokens: 10,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens: 150,
-				},
-			},
-			wantInput:         0,
-			wantCacheRead:     150,
-			wantBillingPrompt: 100,
-		},
-		{
-			name: "switch on does not rewrite anthropic billing usage",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     30032,
-				CompletionTokens: 912,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens: 28416,
-				},
-				BillingUsage: &dto.BillingUsage{
-					Source:      dto.BillingUsageSourceClaudeMessages,
-					Semantic:    dto.BillingUsageSemanticAnthropic,
-					ClaudeUsage: anthropicUsage,
-				},
-			},
-			wantInput:         99,
-			wantCacheRead:     28416,
-			wantSameClaudePtr: false,
-			wantClaudeInput:   99,
-		},
-		{
-			name: "switch on preserves original openai billing prompt tokens",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     30032,
-				CompletionTokens: 912,
-				TotalTokens:      30944,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens: 28416,
-				},
-			},
-			wantInput:         1616,
-			wantCacheRead:     28416,
-			wantBillingPrompt: 30032,
-		},
-		{
-			name: "switch on extreme cache counts saturate subtract to zero",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     0,
-				CompletionTokens: 10,
-				PromptTokensDetails: dto.InputTokenDetails{
-					CachedTokens:         math.MaxInt,
-					CachedCreationTokens: math.MaxInt,
-				},
-			},
-			wantInput:         0,
-			wantCacheRead:     math.MaxInt,
-			wantCacheCreate:   math.MaxInt,
-			wantBillingPrompt: 0,
-		},
-		{
-			name: "switch on negative prompt with zero cache clamps to zero",
-			info: switchOnMeta(),
-			oai: dto.Usage{
-				PromptTokens:     -1,
-				CompletionTokens: 10,
-			},
-			wantInput:         0,
-			wantBillingPrompt: -1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			usage := buildClaudeUsageFromOpenAIUsage(&tt.oai, tt.info)
-			require.NotNil(t, usage)
-			assert.Equal(t, tt.wantInput, usage.InputTokens)
-			assert.Equal(t, tt.wantCacheRead, usage.CacheReadInputTokens)
-			if tt.wantCacheCreate != 0 {
-				assert.Equal(t, tt.wantCacheCreate, usage.CacheCreationInputTokens)
-			}
-			if tt.oai.BillingUsage != nil && tt.oai.BillingUsage.ClaudeUsage != nil {
-				assert.Equal(t, tt.wantClaudeInput, usage.InputTokens)
-				assert.Equal(t, anthropicUsage.InputTokens, usage.InputTokens)
-				return
-			}
-			require.NotNil(t, usage.BillingUsage)
-			require.NotNil(t, usage.BillingUsage.OpenAIUsage)
-			assert.Equal(t, tt.wantBillingPrompt, usage.BillingUsage.OpenAIUsage.PromptTokens)
-			assert.Equal(t, dto.BillingUsageSemanticOpenAI, usage.BillingUsage.Semantic)
-		})
-	}
-}
-
-func TestStreamResponseOpenAI2ClaudeSubtractsCacheWhenSwitchOn(t *testing.T) {
-	info := &convmeta.Values{
-		SendResponseCount: 2,
-		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
-			LastMessagesType: convmeta.LastMessageTypeText,
-			Index:            0,
-		},
-		Options: &convmeta.Options{
-			Claude: convmeta.ClaudeOptions{AnthropicMessagesExcludeCache: true},
-		},
-	}
-
-	responses := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+func TestResponseOpenAI2ClaudePreservesReasoningBeforeText(t *testing.T) {
+	message := dto.Message{Role: "assistant", Content: "final answer"}
+	message.ReasoningContent = ptr("considering the request")
+	resp := ResponseOpenAI2Claude(&dto.OpenAITextResponse{
 		Id:    "chatcmpl_1",
 		Model: "gpt-test",
-		Choices: []dto.ChatCompletionsStreamResponseChoice{
-			{FinishReason: ptr("stop")},
+		Choices: []dto.OpenAITextResponseChoice{
+			{Message: message, FinishReason: "stop"},
 		},
-		Usage: &dto.Usage{
-			PromptTokens:     30032,
-			CompletionTokens: 912,
-			TotalTokens:      30944,
-			PromptTokensDetails: dto.InputTokenDetails{
-				CachedTokens: 28416,
-			},
-		},
-	}, info)
-	require.NotEmpty(t, responses)
+	}, nil)
 
-	var delta *dto.ClaudeResponse
-	for _, resp := range responses {
-		if resp != nil && resp.Type == "message_delta" {
-			delta = resp
-			break
-		}
-	}
-	require.NotNil(t, delta)
-	require.NotNil(t, delta.Usage)
-	assert.Equal(t, 1616, delta.Usage.InputTokens)
-	assert.Equal(t, 28416, delta.Usage.CacheReadInputTokens)
-	assert.Equal(t, 912, delta.Usage.OutputTokens)
-	require.NotNil(t, delta.Usage.BillingUsage)
-	require.NotNil(t, delta.Usage.BillingUsage.OpenAIUsage)
-	assert.Equal(t, 30032, delta.Usage.BillingUsage.OpenAIUsage.PromptTokens)
+	require.Len(t, resp.Content, 2)
+	assert.Equal(t, "thinking", resp.Content[0].Type)
+	require.NotNil(t, resp.Content[0].Thinking)
+	assert.Equal(t, "considering the request", *resp.Content[0].Thinking)
+	assert.Equal(t, "text", resp.Content[1].Type)
+	assert.Equal(t, "final answer", resp.Content[1].GetText())
 }
 
 func TestBuildClaudeUsageFromOpenAICacheWriteUsage(t *testing.T) {
@@ -337,7 +109,7 @@ func TestBuildClaudeUsageFromOpenAICacheWriteUsage(t *testing.T) {
 			CachedTokens:     2921,
 			CacheWriteTokens: 3616,
 		},
-	}, nil)
+	})
 
 	require.NotNil(t, usage)
 	// Claude semantics reports input_tokens excluding cache read/write; the
@@ -453,59 +225,190 @@ func TestStreamResponseOpenAI2ClaudeClosesTextThinkingAndToolBlocks(t *testing.T
 	assert.Equal(t, "message_stop", finishResponses[2].Type)
 }
 
-func TestStreamResponseOpenAI2ClaudeMessageStartZerosInputWhenSwitchOn(t *testing.T) {
+func TestStreamResponseOpenAI2ClaudeFirstFrameUsesUpstreamUsageWhenPresent(t *testing.T) {
 	info := &convmeta.Values{
+		EstimatePromptTokens: 32,
 		SendResponseCount:    1,
-		EstimatePromptTokens: 29829,
-		Options: &convmeta.Options{
-			Claude: convmeta.ClaudeOptions{AnthropicMessagesExcludeCache: true},
-		},
+		ClaudeConvertInfo:    &convmeta.ClaudeConvertInfo{LastMessagesType: convmeta.LastMessageTypeNone},
 	}
 
 	responses := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
 		Id:    "chatcmpl_1",
 		Model: "gpt-test",
-		Choices: []dto.ChatCompletionsStreamResponseChoice{
-			{
-				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
-					Content: ptr("hello"),
-				},
-			},
-		},
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hello")},
+		}},
+		Usage: &dto.Usage{PromptTokens: 29, CompletionTokens: 0, TotalTokens: 29},
 	}, info)
 	require.NotEmpty(t, responses)
 	require.Equal(t, "message_start", responses[0].Type)
 	require.NotNil(t, responses[0].Message)
 	require.NotNil(t, responses[0].Message.Usage)
-	assert.Equal(t, 0, responses[0].Message.Usage.InputTokens)
-	assert.Equal(t, 0, responses[0].Message.Usage.OutputTokens)
-	assert.Equal(t, 0, responses[0].Message.Usage.CacheReadInputTokens)
-	assert.Equal(t, 0, responses[0].Message.Usage.CacheCreationInputTokens)
+	assert.Equal(t, 29, responses[0].Message.Usage.InputTokens)
 }
 
-func TestStreamResponseOpenAI2ClaudeMessageStartKeepsEstimateWhenSwitchOff(t *testing.T) {
+func TestStreamResponseOpenAI2ClaudeMessageDeltaCorrectsEstimatedFirstFrame(t *testing.T) {
 	info := &convmeta.Values{
+		EstimatePromptTokens: 32,
 		SendResponseCount:    1,
-		EstimatePromptTokens: 29829,
+		ClaudeConvertInfo:    &convmeta.ClaudeConvertInfo{LastMessagesType: convmeta.LastMessageTypeNone},
 	}
 
-	responses := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+	first := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
 		Id:    "chatcmpl_1",
 		Model: "gpt-test",
-		Choices: []dto.ChatCompletionsStreamResponseChoice{
-			{
-				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
-					Content: ptr("hello"),
-				},
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hello")},
+		}},
+	}, info)
+	require.NotEmpty(t, first)
+	require.Equal(t, "message_start", first[0].Type)
+	require.NotNil(t, first[0].Message.Usage)
+	assert.Equal(t, 32, first[0].Message.Usage.InputTokens)
+
+	info.SendResponseCount = 2
+	finish := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id:    "chatcmpl_1",
+		Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			FinishReason: ptr("stop"),
+		}},
+		Usage: &dto.Usage{PromptTokens: 29, CompletionTokens: 4, TotalTokens: 33},
+	}, info)
+	var delta *dto.ClaudeResponse
+	for _, resp := range finish {
+		if resp.Type == "message_delta" {
+			delta = resp
+			break
+		}
+	}
+	require.NotNil(t, delta)
+	require.NotNil(t, delta.Usage)
+	assert.Equal(t, 29, delta.Usage.InputTokens)
+	assert.Equal(t, 4, delta.Usage.OutputTokens)
+}
+
+func TestStreamResponseOpenAI2ClaudeMessageDeltaDoesNotZeroFirstFrameCache(t *testing.T) {
+	info := &convmeta.Values{
+		EstimatePromptTokens: 8,
+		SendResponseCount:    1,
+		ClaudeConvertInfo:    &convmeta.ClaudeConvertInfo{LastMessagesType: convmeta.LastMessageTypeNone},
+	}
+
+	first := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id:    "chatcmpl_1",
+		Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hello")},
+		}},
+		Usage: &dto.Usage{
+			PromptTokens:     40,
+			CompletionTokens: 0,
+			TotalTokens:      40,
+			PromptTokensDetails: dto.InputTokenDetails{
+				CachedTokens:         20,
+				CachedCreationTokens: 10,
 			},
 		},
 	}, info)
-	require.NotEmpty(t, responses)
-	require.Equal(t, "message_start", responses[0].Type)
-	require.NotNil(t, responses[0].Message)
-	require.NotNil(t, responses[0].Message.Usage)
-	assert.Equal(t, 29829, responses[0].Message.Usage.InputTokens)
-	assert.Equal(t, 0, responses[0].Message.Usage.OutputTokens)
+	require.Equal(t, "message_start", first[0].Type)
+	require.NotNil(t, first[0].Message.Usage)
+	assert.Equal(t, 20, first[0].Message.Usage.CacheReadInputTokens)
+	assert.Equal(t, 10, first[0].Message.Usage.CacheCreationInputTokens)
+
+	info.SendResponseCount = 2
+	finish := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id:    "chatcmpl_1",
+		Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			FinishReason: ptr("stop"),
+		}},
+		Usage: &dto.Usage{PromptTokens: 29, CompletionTokens: 4, TotalTokens: 33},
+	}, info)
+	var delta *dto.ClaudeResponse
+	for _, resp := range finish {
+		if resp.Type == "message_delta" {
+			delta = resp
+			break
+		}
+	}
+	require.NotNil(t, delta)
+	require.NotNil(t, delta.Usage)
+	assert.Equal(t, 29, delta.Usage.InputTokens)
+	assert.Equal(t, 20, delta.Usage.CacheReadInputTokens)
+	assert.Equal(t, 10, delta.Usage.CacheCreationInputTokens)
+}
+
+func TestStreamResponseOpenAI2ClaudeGeminiBillingUsageOnStartAndDelta(t *testing.T) {
+	info := &convmeta.Values{
+		EstimatePromptTokens: 4994,
+		SendResponseCount:    1,
+		ClaudeConvertInfo:    &convmeta.ClaudeConvertInfo{LastMessagesType: convmeta.LastMessageTypeNone},
+	}
+
+	firstUsage := &dto.Usage{
+		PromptTokens:     3868,
+		CompletionTokens: 0,
+		TotalTokens:      3868,
+		BillingUsage: dto.NewGeminiChatBillingUsage(&dto.GeminiUsageMetadata{
+			PromptTokenCount: 3868,
+			TotalTokenCount:  3868,
+		}),
+	}
+	first := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id:    "chatcmpl_1",
+		Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hello")},
+		}},
+		Usage: firstUsage,
+	}, info)
+	require.NotEmpty(t, first)
+	require.Equal(t, "message_start", first[0].Type)
+	require.NotNil(t, first[0].Message)
+	require.NotNil(t, first[0].Message.Usage)
+	assert.Equal(t, 3868, first[0].Message.Usage.InputTokens)
+	require.NotNil(t, first[0].Message.Usage.BillingUsage)
+	assert.Equal(t, dto.BillingUsageSourceGeminiChat, first[0].Message.Usage.BillingUsage.Source)
+	assert.Equal(t, dto.BillingUsageSemanticGemini, first[0].Message.Usage.BillingUsage.Semantic)
+	require.NotNil(t, first[0].Message.Usage.BillingUsage.GeminiUsageMetadata)
+	assert.Equal(t, 3868, first[0].Message.Usage.BillingUsage.GeminiUsageMetadata.PromptTokenCount)
+
+	info.SendResponseCount = 2
+	finish := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{
+		Id:    "chatcmpl_1",
+		Model: "gpt-test",
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			FinishReason: ptr("stop"),
+		}},
+		Usage: &dto.Usage{
+			PromptTokens:     3868,
+			CompletionTokens: 12,
+			TotalTokens:      3880,
+			BillingUsage: dto.NewGeminiChatBillingUsage(&dto.GeminiUsageMetadata{
+				PromptTokenCount:     3868,
+				CandidatesTokenCount: 12,
+				TotalTokenCount:      3880,
+			}),
+		},
+	}, info)
+	var delta *dto.ClaudeResponse
+	for _, resp := range finish {
+		if resp.Type == "message_delta" {
+			delta = resp
+			break
+		}
+	}
+	require.NotNil(t, delta)
+	require.NotNil(t, delta.Usage)
+	assert.Equal(t, 3868, delta.Usage.InputTokens)
+	assert.Equal(t, 12, delta.Usage.OutputTokens)
+	require.NotNil(t, delta.Usage.BillingUsage)
+	assert.Equal(t, dto.BillingUsageSourceGeminiChat, delta.Usage.BillingUsage.Source)
+	assert.Equal(t, dto.BillingUsageSemanticGemini, delta.Usage.BillingUsage.Semantic)
+	require.NotNil(t, delta.Usage.BillingUsage.GeminiUsageMetadata)
+	assert.Equal(t, 3868, delta.Usage.BillingUsage.GeminiUsageMetadata.PromptTokenCount)
+	assert.Equal(t, 12, delta.Usage.BillingUsage.GeminiUsageMetadata.CandidatesTokenCount)
 }
 
 func TestNormalizeCacheCreationSplit(t *testing.T) {
@@ -522,10 +425,6 @@ func ptr[T any](value T) *T {
 	return &value
 }
 
-// Regression: upstreams such as vLLM emit the FINAL tool_call argument fragment in the
-// same chunk as finish_reason, with usage deferred to a later usage-only chunk. The
-// converter used to return early on that chunk, dropping the fragment and handing the
-// client truncated (invalid) tool-call JSON -> "Invalid tool parameters" in Claude Code.
 func TestStreamResponseOpenAI2ClaudeKeepsToolArgsOnFinishReasonChunk(t *testing.T) {
 	info := &convmeta.Values{
 		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
@@ -605,8 +504,8 @@ func TestStreamResponseOpenAI2ClaudeKeepsToolArgsOnFinishReasonChunk(t *testing.
 	// every tool block must carry complete, parseable JSON
 	require.Len(t, partial, 2)
 	for idx, buf := range partial {
-		var decoded map[string]interface{}
-		require.NoErrorf(t, json.Unmarshal([]byte(buf), &decoded),
+		var decoded map[string]any
+		require.NoErrorf(t, kitutil.Unmarshal([]byte(buf), &decoded),
 			"tool block %d has truncated JSON: %s", idx, buf)
 	}
 	assert.Equal(t, `{"command":"ls -la"}`, partial[1])
@@ -616,6 +515,7 @@ func TestStreamResponseOpenAI2ClaudeKeepsToolArgsOnFinishReasonChunk(t *testing.
 // GLM/vLLM continuation chunks re-emit function.name (vllm#44098). Claude Code
 // resets tool input to {} on every content_block_start, so a second start for
 // the same index truncates JSON and surfaces as "Invalid tool parameters".
+
 func TestStreamResponseOpenAI2ClaudeDoesNotRestartToolBlockWhenNameRepeats(t *testing.T) {
 	info := &convmeta.Values{
 		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
@@ -671,8 +571,8 @@ func TestStreamResponseOpenAI2ClaudeDoesNotRestartToolBlockWhenNameRepeats(t *te
 
 	require.Equal(t, 1, starts[0], "content_block_start must be emitted once per tool index")
 	require.Equal(t, `{"pattern":"src/**/*.go","glob":"*.go"}`, acc[0])
-	var decoded map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(acc[0]), &decoded))
+	var decoded map[string]any
+	require.NoError(t, kitutil.Unmarshal([]byte(acc[0]), &decoded))
 }
 
 func TestStreamResponseOpenAI2ClaudeDoesNotRestartToolBlockAfterThinking(t *testing.T) {

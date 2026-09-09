@@ -37,6 +37,7 @@ type exchangeKeyAuthBody struct {
 
 func setupExchangeKeyAuthTest(t *testing.T) {
 	t.Helper()
+	require.NoError(t, i18n.Init())
 	t.Setenv(exchange_key.EnvEnabled, "")
 	t.Setenv(exchange_key.EnvSecret, "")
 	previousDB := model.DB
@@ -198,7 +199,7 @@ func TestExchangeKeyAuthBannedUserReturns403(t *testing.T) {
 	response := serveExchangeKeyAuth(t, TokenAuth(), "Bearer "+exchangeKey("alice"))
 
 	require.Equal(t, http.StatusForbidden, response.Code)
-	assert.Contains(t, response.Body.String(), i18n.MsgAuthUserBanned)
+	assert.Contains(t, response.Body.String(), i18n.Translate(i18n.LangEn, i18n.MsgAuthUserBanned))
 }
 
 func TestExchangeKeyAuthOrdinary48CharToken(t *testing.T) {
