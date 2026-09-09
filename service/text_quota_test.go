@@ -1373,3 +1373,22 @@ func TestAppendToolSurchargeLogInfoWritesOnlyStructuredFields(t *testing.T) {
 	assert.NotContains(t, fields, "image_generation_call")
 	assert.NotContains(t, fields, "image_generation_call_price")
 }
+
+func TestGetUsageStatsCacheCaliberFallsBackToUpstream(t *testing.T) {
+	setting := operation_setting.GetGeneralSetting()
+	original := setting.UsageStatsCacheCaliber
+	t.Cleanup(func() { setting.UsageStatsCacheCaliber = original })
+
+	setting.UsageStatsCacheCaliber = operation_setting.StatsCacheCaliberExcludeCache
+	assert.Equal(t, operation_setting.StatsCacheCaliberExcludeCache, operation_setting.GetUsageStatsCacheCaliber())
+
+	setting.UsageStatsCacheCaliber = operation_setting.StatsCacheCaliberIncludeCache
+	assert.Equal(t, operation_setting.StatsCacheCaliberIncludeCache, operation_setting.GetUsageStatsCacheCaliber())
+
+	// 非法存储值不信任，读取时按 upstream 处理
+	setting.UsageStatsCacheCaliber = "bogus"
+	assert.Equal(t, operation_setting.StatsCacheCaliberUpstream, operation_setting.GetUsageStatsCacheCaliber())
+
+	setting.UsageStatsCacheCaliber = ""
+	assert.Equal(t, operation_setting.StatsCacheCaliberUpstream, operation_setting.GetUsageStatsCacheCaliber())
+}

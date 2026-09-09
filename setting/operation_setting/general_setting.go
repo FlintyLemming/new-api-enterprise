@@ -10,6 +10,13 @@ const (
 	QuotaDisplayTypeCustom = "CUSTOM"
 )
 
+// 用量统计 prompt_tokens 落库口径
+const (
+	StatsCacheCaliberUpstream     = "upstream"      // 默认：按上游原始口径落库，保持现状
+	StatsCacheCaliberExcludeCache = "exclude_cache" // 统一为不含缓存（Anthropic 口径）
+	StatsCacheCaliberIncludeCache = "include_cache" // 统一为含缓存（OpenAI 口径）
+)
+
 type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
@@ -20,6 +27,8 @@ type GeneralSetting struct {
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// 用量统计 prompt_tokens 落库口径：upstream / exclude_cache / include_cache
+	UsageStatsCacheCaliber string `json:"usage_stats_cache_caliber"`
 }
 
 // 默认配置
@@ -30,6 +39,7 @@ var generalSetting = GeneralSetting{
 	QuotaDisplayType:           QuotaDisplayTypeUSD,
 	CustomCurrencySymbol:       "¤",
 	CustomCurrencyExchangeRate: 1.0,
+	UsageStatsCacheCaliber:     StatsCacheCaliberUpstream,
 }
 
 func init() {
@@ -87,5 +97,16 @@ func GetUsdToCurrencyRate(usdToCny float64) float64 {
 		return 1
 	default:
 		return 1
+	}
+}
+
+// GetUsageStatsCacheCaliber 返回用量统计 prompt_tokens 落库口径。
+// 不信任存储值：非法取值按 upstream（保持现状口径）处理。
+func GetUsageStatsCacheCaliber() string {
+	switch generalSetting.UsageStatsCacheCaliber {
+	case StatsCacheCaliberExcludeCache, StatsCacheCaliberIncludeCache:
+		return generalSetting.UsageStatsCacheCaliber
+	default:
+		return StatsCacheCaliberUpstream
 	}
 }
