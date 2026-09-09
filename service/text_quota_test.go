@@ -1392,3 +1392,56 @@ func TestGetUsageStatsCacheCaliberFallsBackToUpstream(t *testing.T) {
 	setting.UsageStatsCacheCaliber = ""
 	assert.Equal(t, operation_setting.StatsCacheCaliberUpstream, operation_setting.GetUsageStatsCacheCaliber())
 }
+
+func TestNormalizeLogPromptTokens(t *testing.T) {
+	// cacheRead=100；cacheWrite 取 checkedCacheWriteTokensTotal：5m+1h=60 > 50 → 60。
+	// 缓存合计 = 160。
+	inclusive := textQuotaSummary{
+		PromptTokens:          1000,
+		CacheTokens:           100,
+		CacheCreationTokens:   50,
+		CacheCreationTokens5m: 20,
+		CacheCreationTokens1h: 40,
+		InputExcludesCache:    false,
+	}
+	exclusive := inclusive
+	exclusive.InputExcludesCache = true
+
+	zeroCache := textQuotaSummary{PromptTokens: 1000, InputExcludesCache: false}
+
+	underflow := inclusive
+	underflow.PromptTokens = 100 // 100 < 160，减法越界
+
+	// 拆分合计小于总量时回退扁平 cache_creation_tokens：cacheWrite=80，缓存合计=180
+	flatLarger := inclusive
+	flatLarger.CacheCreationTokens = 80
+
+	tests := []struct {
+		name             string
+		summary          textQuotaSummary
+		target           string
+		wantPromptTokens int
+		wantApplied      bool
+		wantSkipReason   string
+	}{
+		{"exclude from inclusive subtracts cache", inclusive, operation_setting.StatsCacheCaliberExcludeCache, 840, true, ""},
+		{"exclude from exclusive is no-op", exclusive, operation_setting.StatsCacheCaliberExcludeCache, 1000, false, "already_matches_target"},
+		{"include from exclusive adds cache", exclusive, operation_setting.StatsCacheCaliberIncludeCache, 1160, true, ""},
+		{"include from inclusive is no-op", inclusive, operation_setting.StatsCacheCaliberIncludeCache, 1000, false, "already_matches_target"},
+		{"upstream target is no-op", inclusive, operation_setting.StatsCacheCaliberUpstream, 1000, false, "unsupported_target"},
+		{"unknown target is no-op", inclusive, "bogus", 1000, false, "unsupported_target"},
+		{"zero cache buckets are no-op both directions", zeroCache, operation_setting.StatsCacheCaliberExcludeCache, 1000, false, "no_cache_tokens"},
+		{"subtraction underflow keeps original", underflow, operation_setting.StatsCacheCaliberExcludeCache, 100, false, "prompt_less_than_cache"},
+		{"flat creation total larger than split sum", flatLarger, operation_setting.StatsCacheCaliberExcludeCache, 820, true, ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotTokens, gotApplied, gotSkip := normalizeLogPromptTokens(tc.summary, tc.target)
+			assert.Equal(t, tc.wantPromptTokens, gotTokens)
+			assert.Equal(t, tc.wantApplied, gotApplied)
+			assert.Equal(t, tc.wantSkipReason, gotSkip)
+			assert.GreaterOrEqual(t, gotTokens, 0, "normalized output must never be negative")
+		})
+	}
+}
