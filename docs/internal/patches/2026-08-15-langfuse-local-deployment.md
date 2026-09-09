@@ -221,3 +221,18 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - **配置无需重下**：两个 option 存在库里，新校验器照常接受，重启后回读 `max_response_bytes=67108864`、`max_in_flight_capture_bytes=34359738368` 均在位，`secret_key_configured=true`。
 - **本次重启零丢失**：窗口内 3 个请求（15:37:06 / 15:37:08 / 15:38:08）全部有完整的 root + generation 双 span。与 §9.4 那次丢 1 条的差别在于这 3 条都是短的非流式请求，能在进程退出前跑完并 drain 完；§8.1 那条限制本身没有改变。
 - 重启后至 15:47 UTC 的请求 100% 有 trace。
+
+
+## 10. 2026-09-09 rc.36 镜像上线
+
+- 源码：`internal-custom` / `2422942fc`，包含合并提交 `a72e8c116`，上游基线 `v1.0.0-rc.36` / `ea7cb0ba4`。补丁取舍见 [rc.36 同步记录](../sync-rc36-2026-09-09.md)。
+- 旧镜像：`new-api:rc30-d921bc998`，image `sha256:3cf5fe1d624b5bd5c5281129a7bed8bf61880dd7a81fbbe02193c3b925648e3d`，仍保留本地。
+- 新镜像：`new-api:rc36-2422942fc`，image `sha256:82eaafb9b0fe2d9cb1ad77ed5d72ffb93ec47a583a57fafc3a893bd49436c9e2`。
+- 用 `git archive HEAD` 导出干净的构建上下文到 `/tmp/new-api-rc36-image-2422942fc`，仅在构建上下文写入 `VERSION=v1.0.0-rc.36-internal-2422942fc`。仓库 VERSION 和用户未跟踪文件不变。沿用仓库 Dockerfile 的固定 digest 多阶段构建，注入 OCI revision/version 标签。构建日志 `/tmp/new-api-rc36-image-build.log`。
+- 备份目录：`/home/flintylemming/appdata/8850-new-api/backups/rc36-20260909/`。包含 `compose.before.yaml`、PostgreSQL 完整逻辑备份 `postgres-before.dump`（429543992 字节，`pg_restore --list` 成功）、`postgres-contents.txt`、ClickHouse schema、切换前容器 ID；目录权限 700、文件 600。ClickHouse 原有日志数据没有导出副本；本次启动创建独立 audit 表。
+- 仅将 `/home/flintylemming/appdata/8850-new-api/compose.yaml` 中应用服务的 image 替换为新 tag，保留 `pull_policy: never`、端口、挂载、网络和配置。
+- 执行 `docker compose -f /home/flintylemming/appdata/8850-new-api/compose.yaml up -d --no-deps --wait --wait-timeout 180 new-api`。应用于 10:07 UTC 启动，数据库迁移及服务初始化约 2.5 秒完成，随后 healthcheck healthy。
+- 验证：`http://127.0.0.1:8850/api/status` 返回 success=true、version=`v1.0.0-rc.36-internal-2422942fc`；首页和 HTML 引用的 7 个静态资源 HTTP 200。新容器 `02e90d30a67a`，重启次数 0。PostgreSQL、ClickHouse、Redis、8858 Langfuse web/worker 的容器 ID 与切换前一致。
+- 本次执行构建、迁移、健康及静态资源验证，没有发起付费模型探测或重新进行 Langfuse E2E。代码级回归与三数据库矩阵见同步记录。本次部署已授权执行；没有推送 Git 或镜像到远端。
+
+回滚应用镜像：将 compose 的 `image: new-api:rc36-2422942fc` 改回 `image: new-api:rc30-d921bc998`，再执行同一 `up -d --no-deps --wait` 命令。不要自动恢复数据库备份：升级期间新写入的数据需要保留，schema 降级应单独核对；完整逻辑备份是恢复依据，不是无损即时回滚的承诺。

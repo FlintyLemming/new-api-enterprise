@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-2026-09-09 同步至 `v1.0.0-rc.36`（`ea7cb0ba4`），合并提交 `a72e8c116`。本地 `main` 已快进至该 tag，内部功能保留 merge 历史；更新前备份为 `backup/internal-custom-before-rc36-20260909`（`d921bc998`）。未推送、未部署。
+2026-09-09 同步至 `v1.0.0-rc.36`（`ea7cb0ba4`），合并提交 `a72e8c116`。本地 `main` 已快进至该 tag，内部功能保留 merge 历史；更新前备份为 `backup/internal-custom-before-rc36-20260909`（`d921bc998`）。代码未推送；2026-09-09 已构建并部署 `new-api:rc36-2422942fc` 到 8850 环境，容器 healthy，详见 [部署台账 §10](patches/2026-08-15-langfuse-local-deployment.md#10-2026-09-09-rc36-镜像上线)。
 
 本次核对覆盖当前分支相对上游的 83 个非 merge 提交、现存功能/修复分支及台账引用的历史分支。归档缓存用量开关和 OAI→Claude 工具流修复，保留以下 5 项。详见 [rc.36 同步与数据库验证记录](sync-rc36-2026-09-09.md)。
 
