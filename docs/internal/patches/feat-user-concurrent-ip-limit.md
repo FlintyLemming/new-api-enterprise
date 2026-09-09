@@ -9,6 +9,12 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-09-09 rc.36 核对
+
+继续保留，上游没有等价的滑动窗口 IP 限制。所有 relay、video 和五条插件协议 TokenAuth 链均保留 `UserIpLimit()`。上游缓存 schema 仍为 v2，内部 v3 不需要递增。
+
+用户更新保留上游 `StructExcept(..., "Password")` 校验，不复活旧密码占位符；另保留 `ConcurrentIpLimit >= -1` 校验及入库字段。三数据库新建/升级/重复迁移验证通过，详情见 [同步记录](../sync-rc36-2026-09-09.md)。
+
 ## 为什么要这个改动
 
 防止单个用户的 key 被分发到大量客户端共享使用：在 token 鉴权的 relay 路由上，限制每个用户在滑动时间窗内（默认 10 分钟）最多同时使用 N 个不同客户端 IP。白名单 IP/CIDR 不计数，部署在服务器上的 key 不受影响。

@@ -9,6 +9,12 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-09-09 rc.36 核对
+
+继续保留，上游未提供等价 Langfuse OTLP 配置、导出和 session/usage 归属。转换 sidecar、hosted tools 与 usage 合并修复采用上游实现；内部 `cache_prompt_token_semantic`、summary 的折叠标志及结算点 Recorder 快照继续保留。
+
+`service/text_quota.go` 冲突保留渠道声明分支，同时采用上游 `max` 写法；新增内置价格测试适配四参数 `BuildTieredTokenParams`（OpenAI prompt 为 inclusive）。OTel 依赖组保持 1.44.0，以满足现有 `WithHTTPClient` 用法。retry/finalizer 顺序与唯一 `BeginAttempt` 入口回归通过。新的计费模型标识和日志权限投影不回退。验证见 [同步记录](../sync-rc36-2026-09-09.md)。
+
 ## 为什么要这个改动
 
 New API 自身只留结构化消费日志，没有可回看的对话级追踪：一次请求用了哪个渠道、重试了几次、每次尝试的

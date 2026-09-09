@@ -9,6 +9,12 @@
 | 状态 | `internal-only` |
 | 上游 PR | 未提交 |
 
+## 2026-09-09 rc.36 核对
+
+继续保留，上游没有共享 SECRET 派生的免 token 行 HMAC 身份。保留鉴权、用户账单、只读日志、token 配额豁免和专用配置接口。适配上游 `LogOther`：exchange-key 日志查询继续调用用户视图投影，不能泄漏 channel/admin/root/audit 信息。
+
+`model.User.EditWithTx` 自动合并产生了两个 updates map，已合并为一个：保留上游密码/认证版本处理并写入 `concurrent_ip_limit`。封禁用户测试显式初始化 i18n，按英文翻译结果断言，不再依赖测试顺序下的原始 key 回退。验证见 [同步记录](../sync-rc36-2026-09-09.md)。
+
 ## 为什么要这个改动
 
 公司内多个内部应用都调用这套 new-api，但 new-api 的令牌是每人一把随机 `sk-<48 位>`，无法在各应用间同步分发。这条 patch 让内部应用在本地用公司 SECRET 计算 `HMAC-SHA256(SECRET, username)`，携带 `Authorization: Bearer sk-<username>-<hmac>` 即可按该用户身份调用 relay，扣费走该用户现有订阅额度和钱包余额，不需要在 `tokens` 表里建 backing token。

@@ -1,0 +1,148 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"gorm.io/gorm"
+)
+
+func must(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+func main() {
+	common.IsMasterNode = true
+	common.SQLitePath = os.Getenv("TEST_SQLITE_MAIN")
+	must(model.InitDB())
+	if p := os.Getenv("TEST_SQLITE_LOG"); p != "" {
+		common.SQLitePath = p
+	}
+	must(model.InitLogDB())
+	defer model.CloseDB()
+	mode := os.Args[1]
+	if mode == "seed" {
+		user := model.User{Username: "rc36-fixture", Password: "fixture-hash", DisplayName: "升级验证", Quota: 1234567, UsedQuota: 456, AffCode: "fixture-aff", Group: "default", Setting: `{"record_ip_log":true}`}
+		must(model.DB.Create(&user).Error)
+		token := model.Token{UserId: user.Id, Key: strings.Repeat("a", 48), Name: "fixture-token", RemainQuota: 23456}
+		must(model.DB.Create(&token).Error)
+		setting := `{"cache_prompt_token_semantic":"prompt_includes_cache","strip_anthropic_billing_header":true,"anthropic_messages_exclude_cache":true}`
+		must(model.DB.Create(&model.Channel{Type: 1, Key: "test-only", Name: "fixture-channel", Setting: &setting}).Error)
+		must(model.DB.Create(&model.PrefillGroup{Name: "fixture-prefill", Type: "model", Items: model.JSONValue(`["test-model","中文"]`)}).Error)
+		for _, option := range []model.Option{{Key: "UserIPCountLimit", Value: "2"}, {Key: "exchange_key.enabled", Value: "true"}, {Key: "langfuse_setting.enabled", Value: "false"}} {
+			must(model.DB.Create(&option).Error)
+		}
+		must(model.DB.Create(&model.SubscriptionPlan{Title: "fixture-plan", PriceAmount: 12.345678}).Error)
+		must(model.DB.Create(&model.UserSession{SID: "fixture-session", UserID: user.Id, UserAuthVersion: 1, Status: "active", RefreshHash: strings.Repeat("b",64), LoginMethod: "password", ExpiresAt: 2000000000}).Error)
+		must(model.LOG_DB.Create(&model.Log{UserId: user.Id, Type: model.LogTypeConsume, ModelName: "test-model", Quota: 456, UseTime: 1, Other: `{"duration_ms":1543,"admin_info":{"channel_id":123},"cache_tokens":20}`}).Error)
+	}
+	if mode == "verify" || mode == "seed" {
+		var user model.User
+		must(model.DB.Where("username = ?", "rc36-fixture").First(&user).Error)
+		if user.Quota != 1234567 || user.UsedQuota != 456 || user.DisplayName != "升级验证" {
+			panic("user values changed")
+		}
+		checks := []struct {
+			db    *gorm.DB
+			value any
+		}{
+			{model.DB, &model.User{Username: user.Username, Password: "x", AffCode: "other-aff"}},
+			{model.DB, &model.Token{UserId: user.Id, Key: strings.Repeat("a", 48)}},
+			{model.DB, &model.PrefillGroup{Name: "fixture-prefill", Type: "model"}},
+		}
+		for _, check := range checks {
+			if check.db.Create(check.value).Error == nil {
+				panic("unique constraint lost")
+			}
+		}
+		var token model.Token
+		must(model.DB.Where("name = ?", "fixture-token").First(&token).Error)
+		if token.RemainQuota != 23456 {
+			panic("token quota changed")
+		}
+		var channel model.Channel
+		must(model.DB.Where("name = ?", "fixture-channel").First(&channel).Error)
+		if channel.Setting == nil || !strings.Contains(*channel.Setting, `"strip_anthropic_billing_header":true`) {
+			panic("channel setting lost")
+		}
+		var prefill model.PrefillGroup
+		must(model.DB.Where("name = ?", "fixture-prefill").First(&prefill).Error)
+		var items []string
+		must(common.Unmarshal(prefill.Items, &items))
+		if len(items) != 2 || items[1] != "中文" {
+			panic("JSON round trip changed")
+		}
+		var plan model.SubscriptionPlan
+		must(model.DB.Where("title = ?", "fixture-plan").First(&plan).Error)
+		if plan.PriceAmount != 12.345678 {
+			panic("decimal price changed")
+		}
+		var log model.Log
+		must(model.LOG_DB.Where("model_name = ?", "test-model").First(&log).Error)
+		if log.Quota != 456 || log.UseTime != 1 || !strings.Contains(log.Other, `"duration_ms":1543`) {
+			panic("log values changed")
+		}
+		for _, key := range []string{"UserIPCountLimit", "exchange_key.enabled", "langfuse_setting.enabled"} {
+			var option model.Option
+			must(model.DB.Where(&model.Option{Key: key}).First(&option).Error)
+		}
+	}
+	snapshot := map[string]any{}
+	for _, conn := range []struct {
+		name string
+		db   *gorm.DB
+	}{{"main", model.DB}, {"log", model.LOG_DB}} {
+		var version string
+		versionSQL := "SELECT version()"
+		if conn.db.Dialector.Name() == "sqlite" {
+			versionSQL = "SELECT sqlite_version()"
+		}
+		must(conn.db.Raw(versionSQL).Scan(&version).Error)
+		snapshot[conn.name+"_version"] = version
+		var queries []string
+		switch conn.db.Dialector.Name() {
+		case "sqlite":
+			queries = []string{"SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name"}
+		case "mysql":
+			queries = []string{"SELECT table_name,column_name,column_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema=DATABASE() ORDER BY table_name,ordinal_position", "SELECT table_name,index_name,non_unique,seq_in_index,column_name FROM information_schema.statistics WHERE table_schema=DATABASE() ORDER BY table_name,index_name,seq_in_index"}
+		case "postgres":
+			queries = []string{"SELECT table_name,column_name,data_type,is_nullable,column_default,character_maximum_length,numeric_precision,numeric_scale FROM information_schema.columns WHERE table_schema='public' ORDER BY table_name,ordinal_position", "SELECT tablename,indexname,indexdef FROM pg_indexes WHERE schemaname='public' ORDER BY tablename,indexname", "SELECT conrelid::regclass::text,conname,pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace='public'::regnamespace ORDER BY conrelid::regclass::text,conname"}
+		}
+		var schema []string
+		for _, q := range queries {
+			rows, err := conn.db.Raw(q).Rows()
+			must(err)
+			cols, err := rows.Columns()
+			must(err)
+			for rows.Next() {
+				vals := make([]any, len(cols))
+				ptrs := make([]any, len(cols))
+				for i := range vals {
+					ptrs[i] = &vals[i]
+				}
+				must(rows.Scan(ptrs...))
+				for i, v := range vals {
+					if b, ok := v.([]byte); ok {
+						vals[i] = string(b)
+					}
+				}
+				encoded, err := common.Marshal(vals)
+				must(err)
+				schema = append(schema, string(encoded))
+			}
+			must(rows.Err())
+			must(rows.Close())
+		}
+		sort.Strings(schema)
+		snapshot[conn.name+"_schema"] = schema
+	}
+	encoded, err := common.Marshal(snapshot)
+	must(err)
+	must(os.WriteFile(os.Args[2], encoded, 0600))
+	fmt.Println("PASS", mode)
+}

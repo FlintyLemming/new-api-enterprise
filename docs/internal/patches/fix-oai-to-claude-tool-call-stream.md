@@ -6,8 +6,16 @@
 | 基线 | `origin/main` @ `ccd535ef8` |
 | 合入 commit | `527d6fca`（merge） |
 | 合入日期 | 2026-09-01 |
-| 状态 | `upstream-pending` |
-| 上游 PR | 未提交 |
+| 状态 | `upstream-merged`（2026-09-09 归档） |
+| 上游 PR | 等价修复 #7137 / #7170（非原补丁直接合入） |
+
+## 2026-09-09 rc.36 归档
+
+上游 #7137（`0ed497f06`）/ #7170（`bbd97446c`）引入按 ID/index 跟踪的 `ClaudeStreamToolCall`，`Started` 防止重复 start，内容 delta 先于 finish 处理，并支持缺失 ID 的待发工具块。
+
+已删除内部 `ToolCallStartSent`、`markToolCallStartSent` 和 `deferClose` 实现。`convmeta/meta.go` 与 `oai_chat/to_claude_messages_resp.go` 的生产代码和 rc.36 完全一致；保留原分支的三个行为回归测试（末帧参数、首工具重复名字、thinking 后重复名字），全部通过。独立 relaykit 全量测试与 `GOWORK=off go build ./...` 通过。验证见 [同步记录](../sync-rc36-2026-09-09.md)。
+
+以下为历史实现，已不再生效。
 
 ## 为什么要这个改动
 

@@ -6,8 +6,16 @@
 | 基线 | `origin/main` @ `ccd535ef8` |
 | 合入 commit | `4abaa43a9` |
 | 合入日期 | 2026-08-13 |
-| 状态 | `upstream-pending` |
+| 状态 | `upstream-merged`（2026-09-09 归档） |
 | 上游 PR | 未提交（正文草稿见根目录 `PR_NOTICE.md`） |
+
+## 2026-09-09 rc.36 归档
+
+上游 #7137（`0ed497f06`）/ #7170（`bbd97446c`）已覆盖此补丁的目的：`internal/shared/claude/usage.go` 默认将 OpenAI inclusive prompt 扣除缓存，保留原始 billing sidecar；流式首帧优先使用真实 usage，终态修正估算并保留先前非零字段。原生 Anthropic sidecar 不重复扣减。
+
+内部 `anthropic_messages_exclude_cache` 字段、转换选项、表单开关、翻译及仅测试开关的用例已移除，转换生产代码与 rc.36 完全一致。旧渠道 JSON 中的字段会被忽略，重新保存后自然消失，无需数据迁移。默认行为现在采用上游的正确缓存口径；不再强制将首帧输入置零，相关行为由上游流式 usage 测试保护。
+
+`cache_prompt_token_semantic` 属于 Langfuse 的计费/遥测前置声明，功能不同，继续保留。历史改动说明如下，已不代表当前运行代码。验证见 [同步记录](../sync-rc36-2026-09-09.md)。
 
 ## 为什么要这个改动
 

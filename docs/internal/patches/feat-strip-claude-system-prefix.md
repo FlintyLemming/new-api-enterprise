@@ -9,6 +9,10 @@
 | 状态 | `internal-only` |
 | 上游 PR | 未提交 |
 
+## 2026-09-09 rc.36 核对
+
+继续保留，上游没有等价 `x-anthropic-billing-header` 过滤。适配上游 `strings.Builder` 重构，在 `WriteString` 前保持 nil 检查和过滤；过滤后为空时不生成空 system message，OpenRouter Claude 分块路径仍保留原文。相关 relaykit 测试通过。删除旁边已被上游替代的缓存用量开关，不影响此功能。验证见 [同步记录](../sync-rc36-2026-09-09.md)。
+
 ## 为什么要这个改动
 
 Claude Code 每个 `/v1/messages` 请求都把变化的 `x-anthropic-billing-header: cc_version=...; cch=<每次不同>;` 放在 `system[0]`。new-api 转成 OpenAI chat 时把所有 system 段拼成一条 string，这段头变成发给本地 DeepSeek 的第一个 token，前缀缓存从第二块起全部失效，命中钉死在约 17920 token。
