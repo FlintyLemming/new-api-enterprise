@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { parseCurrencyDisplayType } from '@/lib/currency'
 
 import { CheckinSettingsSection } from '../general/checkin-settings-section'
-import { PricingSection } from '../general/pricing-section'
+import {
+  parseUsageStatsCacheCaliber,
+  PricingSection,
+} from '../general/pricing-section'
 import { QuotaSettingsSection } from '../general/quota-settings-section'
 import { PaymentSettingsSection } from '../integrations/payment-settings-section'
 import { RatioSettingsCard } from '../models/ratio-settings-card'
@@ -92,6 +95,9 @@ const BILLING_SECTIONS = [
           general_setting: {
             quota_display_type: parseCurrencyDisplayType(
               settings['general_setting.quota_display_type']
+            ),
+            usage_stats_cache_caliber: parseUsageStatsCacheCaliber(
+              settings['general_setting.usage_stats_cache_caliber']
             ),
             custom_currency_symbol:
               settings['general_setting.custom_currency_symbol'] ?? '¤',

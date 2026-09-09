@@ -35,6 +35,7 @@ const defaultBillingSettings: BillingSettings = {
   QuotaPerUnit: 500000,
   USDExchangeRate: 7,
   'general_setting.quota_display_type': 'USD',
+  'general_setting.usage_stats_cache_caliber': 'upstream',
   'general_setting.custom_currency_symbol': '¤',
   'general_setting.custom_currency_exchange_rate': 1,
   DisplayInCurrencyEnabled: true,
