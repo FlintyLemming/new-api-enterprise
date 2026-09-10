@@ -142,6 +142,16 @@ export interface LogOtherData {
       original: number
       clamped: number
     }
+    // Stats caliber normalization marker: present when the global usage-stats
+    // cache caliber switch rewrote prompt_tokens at log write time.
+    // Admin-only (nested under admin_info).
+    stats_normalization?: {
+      target: string
+      upstream_caliber: string
+      original_prompt_tokens: number
+      applied: boolean
+      skip_reason?: string
+    }
     // Reject / intercept reason (admin only)
     reject_reason?: string
     task_plugin?: TaskPluginInfo

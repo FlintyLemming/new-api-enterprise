@@ -792,6 +792,42 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
+        {/* Stats caliber normalization marker (admin only) */}
+        {props.isAdmin && other?.admin_info?.stats_normalization && (
+          <DetailSection label={t('Stats normalization')}>
+            <DetailRow
+              label={t('Target caliber')}
+              value={other.admin_info.stats_normalization.target}
+              mono
+            />
+            <DetailRow
+              label={t('Upstream caliber')}
+              value={other.admin_info.stats_normalization.upstream_caliber}
+              mono
+            />
+            <DetailRow
+              label={t('Original prompt tokens')}
+              value={String(
+                other.admin_info.stats_normalization.original_prompt_tokens
+              )}
+              mono
+            />
+            {other.admin_info.stats_normalization.applied ? (
+              <DetailRow
+                label={t('Normalized prompt tokens')}
+                value={String(props.log.prompt_tokens)}
+                mono
+              />
+            ) : (
+              <DetailRow
+                label={t('Skip reason')}
+                value={other.admin_info.stats_normalization.skip_reason}
+                mono
+              />
+            )}
+          </DetailSection>
+        )}
+
         {/* Reject reason (admin only) */}
         {props.isAdmin && adminInfo?.reject_reason && (
           <DetailSection

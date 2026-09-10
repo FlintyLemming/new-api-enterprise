@@ -3,7 +3,13 @@
   "Exchange Key": "Exchange Key",
   "Exclude cache tokens": "Exclude cache tokens",
   "Include cache tokens": "Include cache tokens",
+  "Normalized prompt tokens": "Normalized prompt tokens",
+  "Original prompt tokens": "Original prompt tokens",
   "Select cache caliber": "Select cache caliber",
+  "Skip reason": "Skip reason",
+  "Stats normalization": "Stats normalization",
+  "Target caliber": "Target caliber",
+  "Upstream caliber": "Upstream caliber",
   "Upstream original": "Upstream original",
   "Usage Stats Cache Caliber": "Usage Stats Cache Caliber"
 }
