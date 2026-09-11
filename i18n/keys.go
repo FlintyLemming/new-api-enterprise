@@ -74,6 +74,18 @@ const (
 	MsgRedemptionExpireTimeInvalid = "redemption.expire_time_invalid"
 )
 
+// Subscription reset card related messages
+const (
+	MsgResetCardNoAvailable         = "subscription_reset_card.no_available"
+	MsgResetCardAlreadyUsed         = "subscription_reset_card.already_used"
+	MsgResetCardInvalidSubscription = "subscription_reset_card.invalid_subscription"
+	MsgResetCardNotFound            = "subscription_reset_card.not_found"
+	MsgResetCardNotUnused           = "subscription_reset_card.not_unused"
+	MsgResetCardNameLength          = "subscription_reset_card.name_length"
+	MsgResetCardCountRange          = "subscription_reset_card.count_range"
+	MsgResetCardExpireTimeInvalid   = "subscription_reset_card.expire_time_invalid"
+)
+
 // User related messages
 const (
 	MsgUserPasswordLoginDisabled     = "user.password_login_disabled"
