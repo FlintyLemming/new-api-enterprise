@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -117,4 +118,119 @@ func UseSubscriptionResetCard(userId, subscriptionId int) (*SubscriptionResetCar
 	card.UsedSubscriptionId = subscriptionId
 	RecordLog(userId, LogTypeManage, fmt.Sprintf("使用订阅重置卡（ID: %d）清零订阅（ID: %d，套餐 %s）当前周期已用额度并重启重置周期", card.Id, sub.Id, plan.Title))
 	return &card, nil
+}
+
+// GetAllSubscriptionResetCards 管理端分页列表，ID 倒序。
+func GetAllSubscriptionResetCards(startIdx, num int) (cards []*SubscriptionResetCard, total int64, err error) {
+	if err = DB.Model(&SubscriptionResetCard{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err = DB.Order("id desc").Limit(num).Offset(startIdx).Find(&cards).Error
+	return cards, total, err
+}
+
+// SearchSubscriptionResetCards 管理端搜索：keyword 为数字时匹配卡 ID 或用户 ID，
+// 否则按名称前缀；status 支持 "expired" 虚拟态（未使用但已过期）与数字状态，
+// 逻辑对齐 SearchRedemptions。
+func SearchSubscriptionResetCards(keyword, status string, startIdx, num int) (cards []*SubscriptionResetCard, total int64, err error) {
+	query := DB.Model(&SubscriptionResetCard{})
+
+	if keyword != "" {
+		if id, convErr := strconv.Atoi(keyword); convErr == nil {
+			query = query.Where("id = ? OR user_id = ? OR name LIKE ?", id, id, keyword+"%")
+		} else {
+			query = query.Where("name LIKE ?", keyword+"%")
+		}
+	}
+
+	if status != "" {
+		now := common.GetTimestamp()
+		switch status {
+		case "expired":
+			query = query.Where(
+				"status = ? AND expired_time != 0 AND expired_time < ?",
+				common.SubscriptionResetCardStatusUnused,
+				now,
+			)
+		case strconv.Itoa(common.SubscriptionResetCardStatusUnused):
+			query = query.Where(
+				"status = ? AND (expired_time = 0 OR expired_time >= ?)",
+				common.SubscriptionResetCardStatusUnused,
+				now,
+			)
+		case strconv.Itoa(common.SubscriptionResetCardStatusUsed):
+			query = query.Where("status = ?", common.SubscriptionResetCardStatusUsed)
+		case strconv.Itoa(common.SubscriptionResetCardStatusDisabled):
+			query = query.Where("status = ?", common.SubscriptionResetCardStatusDisabled)
+		}
+	}
+
+	if err = query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&cards).Error
+	return cards, total, err
+}
+
+// DisableSubscriptionResetCards 批量禁用未使用的卡，逐张校验（1..1000 个 ID）。
+// 更新带 status=未使用 条件，与核销 CAS 互斥：竞态下必有一方失败。
+func DisableSubscriptionResetCards(ids []int) (int64, error) {
+	if len(ids) == 0 || len(ids) > 1000 {
+		return 0, errors.New("select between 1 and 1000 reset cards")
+	}
+	for _, id := range ids {
+		if id <= 0 {
+			return 0, errors.New("reset card IDs must be positive")
+		}
+	}
+	var affected int64
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		for _, id := range ids {
+			var card SubscriptionResetCard
+			if err := lockForUpdate(tx).Where("id = ?", id).First(&card).Error; err != nil {
+				return ErrResetCardNotFound
+			}
+			if card.Status != common.SubscriptionResetCardStatusUnused {
+				return ErrResetCardNotUnused
+			}
+			result := tx.Model(&SubscriptionResetCard{}).
+				Where("id = ? AND status = ?", id, common.SubscriptionResetCardStatusUnused).
+				Update("status", common.SubscriptionResetCardStatusDisabled)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return ErrResetCardNotUnused
+			}
+			affected++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+// DeleteSubscriptionResetCardById 软删除，只影响管理端展示。
+func DeleteSubscriptionResetCardById(id int) error {
+	if id <= 0 {
+		return errors.New("id 为空！")
+	}
+	var card SubscriptionResetCard
+	if err := DB.Where("id = ?", id).First(&card).Error; err != nil {
+		return err
+	}
+	return DB.Delete(&card).Error
+}
+
+// CountAvailableSubscriptionResetCards 用户端：未使用且未过期的卡数量。
+func CountAvailableSubscriptionResetCards(userId int) (int64, error) {
+	var count int64
+	now := common.GetTimestamp()
+	err := DB.Model(&SubscriptionResetCard{}).
+		Where("user_id = ? AND status = ? AND (expired_time = 0 OR expired_time >= ?)",
+			userId, common.SubscriptionResetCardStatusUnused, now).
+		Count(&count).Error
+	return count, err
 }

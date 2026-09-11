@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -276,4 +277,117 @@ func TestUseSubscriptionResetCardConcurrentSingleSuccess(t *testing.T) {
 	assert.Equal(t, 1, successCount, "并发核销同一用户唯一的卡只能成功一次")
 	assert.Equal(t, common.SubscriptionResetCardStatusUsed, getResetCard(t, 9).Status)
 	assert.Zero(t, getSubscriptionResetSub(t, sub.Id).AmountUsed)
+}
+
+func TestCountAvailableSubscriptionResetCards(t *testing.T) {
+	truncateTables(t)
+	now := GetDBTimestamp()
+
+	seedResetCard(t, &SubscriptionResetCard{Id: 10, UserId: 107, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: 0})
+	seedResetCard(t, &SubscriptionResetCard{Id: 11, UserId: 107, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: now + 3600})
+	seedResetCard(t, &SubscriptionResetCard{Id: 12, UserId: 107, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now - 7200, ExpiredTime: now - 1})
+	seedResetCard(t, &SubscriptionResetCard{Id: 13, UserId: 107, Status: common.SubscriptionResetCardStatusUsed, CreatedTime: now, ExpiredTime: 0, UsedTime: now, UsedSubscriptionId: 1})
+	seedResetCard(t, &SubscriptionResetCard{Id: 14, UserId: 107, Status: common.SubscriptionResetCardStatusDisabled, CreatedTime: now, ExpiredTime: 0})
+	seedResetCard(t, &SubscriptionResetCard{Id: 15, UserId: 108, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: 0})
+
+	count, err := CountAvailableSubscriptionResetCards(107)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, count, "只统计未使用且未过期的卡")
+}
+
+func TestSearchSubscriptionResetCardsFilters(t *testing.T) {
+	truncateTables(t)
+	now := GetDBTimestamp()
+
+	seedResetCard(t, &SubscriptionResetCard{Id: 20, Name: "补偿卡", UserId: 107, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: 0})
+	seedResetCard(t, &SubscriptionResetCard{Id: 21, Name: "补偿卡-过期", UserId: 108, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now - 7200, ExpiredTime: now - 1})
+	seedResetCard(t, &SubscriptionResetCard{Id: 22, Name: "活动卡", UserId: 107, Status: common.SubscriptionResetCardStatusUsed, CreatedTime: now, ExpiredTime: 0, UsedTime: now, UsedSubscriptionId: 1})
+
+	// 过期虚拟态：只含未使用且已过期的卡
+	cards, total, err := SearchSubscriptionResetCards("", "expired", 0, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+	require.Len(t, cards, 1)
+	assert.Equal(t, 21, cards[0].Id)
+
+	// 未使用态排除已过期
+	_, total, err = SearchSubscriptionResetCards("", strconv.Itoa(common.SubscriptionResetCardStatusUnused), 0, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+
+	// 已使用态
+	_, total, err = SearchSubscriptionResetCards("", strconv.Itoa(common.SubscriptionResetCardStatusUsed), 0, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total)
+
+	// 关键字：数字匹配卡 ID / 用户 ID；名称前缀
+	_, total, err = SearchSubscriptionResetCards("补偿", "", 0, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, total)
+	_, total, err = SearchSubscriptionResetCards("108", "", 0, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, total, "数字关键字应命中 user_id=108 的卡")
+
+	// 列表 ID 倒序
+	cards, total, err = GetAllSubscriptionResetCards(0, 10)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, total)
+	require.Len(t, cards, 3)
+	assert.Equal(t, 22, cards[0].Id)
+}
+
+func TestDisableSubscriptionResetCards(t *testing.T) {
+	truncateTables(t)
+	seedResetCardUser(t, 109)
+	_, sub := seedResetCardFixture(t, 109, 9109, 9208, SubscriptionResetDaily)
+	now := GetDBTimestamp()
+
+	seedResetCard(t, &SubscriptionResetCard{Id: 30, UserId: 109, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: 0})
+	seedResetCard(t, &SubscriptionResetCard{Id: 31, UserId: 109, Status: common.SubscriptionResetCardStatusUsed, CreatedTime: now, ExpiredTime: 0, UsedTime: now, UsedSubscriptionId: sub.Id})
+
+	// 已使用的卡不可禁用
+	_, err := DisableSubscriptionResetCards([]int{31})
+	require.ErrorIs(t, err, ErrResetCardNotUnused)
+	assert.Equal(t, common.SubscriptionResetCardStatusUsed, getResetCard(t, 31).Status)
+
+	// 不存在的卡
+	_, err = DisableSubscriptionResetCards([]int{9999})
+	require.ErrorIs(t, err, ErrResetCardNotFound)
+
+	// 空批量 / 超上限
+	_, err = DisableSubscriptionResetCards(nil)
+	require.Error(t, err)
+	_, err = DisableSubscriptionResetCards(make([]int, 1001))
+	require.Error(t, err)
+
+	// 正常禁用，幂等二次禁用报错
+	affected, err := DisableSubscriptionResetCards([]int{30})
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, affected)
+	assert.Equal(t, common.SubscriptionResetCardStatusDisabled, getResetCard(t, 30).Status)
+	_, err = DisableSubscriptionResetCards([]int{30})
+	require.ErrorIs(t, err, ErrResetCardNotUnused)
+
+	// 禁用后不可核销
+	_, err = UseSubscriptionResetCard(109, sub.Id)
+	require.ErrorIs(t, err, ErrNoAvailableResetCard)
+}
+
+func TestDeleteSubscriptionResetCardById(t *testing.T) {
+	truncateTables(t)
+	now := GetDBTimestamp()
+	seedResetCard(t, &SubscriptionResetCard{Id: 40, UserId: 110, Status: common.SubscriptionResetCardStatusUsed, CreatedTime: now, ExpiredTime: 0, UsedTime: now, UsedSubscriptionId: 1})
+
+	require.NoError(t, DeleteSubscriptionResetCardById(40))
+
+	_, total, err := GetAllSubscriptionResetCards(0, 10)
+	require.NoError(t, err)
+	assert.Zero(t, total, "软删除后管理端列表不可见")
+
+	// 软删除记录仍在（用户日志追溯不受影响）
+	var raw SubscriptionResetCard
+	require.NoError(t, DB.Unscoped().Where("id = ?", 40).First(&raw).Error)
+
+	require.Error(t, DeleteSubscriptionResetCardById(40), "重复删除应报错")
+	require.Error(t, DeleteSubscriptionResetCardById(0))
 }
