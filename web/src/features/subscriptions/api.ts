@@ -219,6 +219,22 @@ export async function getSelfSubscriptionFull(): Promise<
   return res.data
 }
 
+export async function getSelfResetCardCount(): Promise<
+  ApiResponse<{ count: number }>
+> {
+  const res = await api.get('/api/subscription/self/reset_cards')
+  return res.data
+}
+
+export async function useSubscriptionResetCard(
+  subscriptionId: number
+): Promise<ApiResponse<{ card_id: number; subscription_id: number }>> {
+  const res = await api.post('/api/subscription/self/reset_cards/use', {
+    subscription_id: subscriptionId,
+  })
+  return res.data
+}
+
 export async function getPublicPlans(): Promise<ApiResponse<PlanRecord[]>> {
   const res = await api.get('/api/subscription/plans')
   return res.data

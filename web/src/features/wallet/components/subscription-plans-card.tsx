@@ -60,6 +60,7 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { PaymentMethod, TopupInfo } from '../types'
+import { ResetCardUseButton } from './reset-card-use-button'
 
 interface SubscriptionPlansCardProps {
   topupInfo: TopupInfo | null
@@ -504,6 +505,14 @@ export function SubscriptionPlansCard({
                       </div>
                       {totalAmount > 0 && isActive && (
                         <Progress value={usagePercent} className='mt-2 h-1.5' />
+                      )}
+                      {isActive && subscription?.id && (
+                        <div className='mt-2 flex justify-end'>
+                          <ResetCardUseButton
+                            subscriptionId={subscription.id}
+                            onUsed={fetchSelfSubscription}
+                          />
+                        </div>
                       )}
                     </div>
                   )
