@@ -252,6 +252,13 @@ const (
 )
 
 const (
+	// 订阅重置卡状态：1=未使用 2=已使用 3=已禁用（取值顺序与兑换码不同，勿混用）
+	SubscriptionResetCardStatusUnused   = 1 // don't use 0, 0 is the default value!
+	SubscriptionResetCardStatusUsed     = 2
+	SubscriptionResetCardStatusDisabled = 3
+)
+
+const (
 	ChannelStatusUnknown          = 0
 	ChannelStatusEnabled          = 1 // don't use 0, 0 is the default value!
 	ChannelStatusManuallyDisabled = 2 // also don't use 0

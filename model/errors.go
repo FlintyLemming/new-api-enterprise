@@ -25,6 +25,15 @@ var (
 // Redemption errors
 var ErrRedeemFailed = errors.New("redeem.failed")
 
+// Subscription reset card errors
+var (
+	ErrNoAvailableResetCard         = errors.New("no available subscription reset card")
+	ErrResetCardAlreadyUsed         = errors.New("subscription reset card already used")
+	ErrResetCardInvalidSubscription = errors.New("invalid subscription for reset card")
+	ErrResetCardNotFound            = errors.New("subscription reset card not found")
+	ErrResetCardNotUnused           = errors.New("subscription reset card is not unused")
+)
+
 // 2FA errors
 var ErrTwoFANotEnabled = errors.New("2fa not enabled")
 var ErrTwoFAAlreadyEnabled = errors.New("2fa already enabled")
