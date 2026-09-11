@@ -54,3 +54,49 @@ func TestSubscriptionResetCardTableRoundTrip(t *testing.T) {
 	assert.Zero(t, loaded.ExpiredTime)
 	assert.Zero(t, loaded.UsedSubscriptionId)
 }
+
+func TestGrantSubscriptionResetCardsCountBounds(t *testing.T) {
+	truncateTables(t)
+	seedResetCardUser(t, 101)
+
+	for _, count := range []int{0, -1, 101, 1000} {
+		err := GrantSubscriptionResetCards(101, "测试卡", count, 0)
+		require.Error(t, err, "count=%d 应被拒绝", count)
+	}
+	for _, count := range []int{1, 100} {
+		require.NoError(t, GrantSubscriptionResetCards(101, "测试卡", count, 0), "count=%d 应通过", count)
+	}
+
+	var total int64
+	require.NoError(t, DB.Model(&SubscriptionResetCard{}).Where("user_id = ?", 101).Count(&total).Error)
+	assert.EqualValues(t, 101, total)
+}
+
+func TestGrantSubscriptionResetCardsFields(t *testing.T) {
+	truncateTables(t)
+	seedResetCardUser(t, 102)
+
+	before := common.GetTimestamp()
+	require.NoError(t, GrantSubscriptionResetCards(102, "9月补偿卡", 2, before+86400))
+	after := common.GetTimestamp()
+
+	var cards []SubscriptionResetCard
+	require.NoError(t, DB.Where("user_id = ?", 102).Order("id asc").Find(&cards).Error)
+	require.Len(t, cards, 2)
+	for _, card := range cards {
+		assert.Equal(t, "9月补偿卡", card.Name)
+		assert.Equal(t, common.SubscriptionResetCardStatusUnused, card.Status)
+		assert.EqualValues(t, before+86400, card.ExpiredTime)
+		assert.GreaterOrEqual(t, card.CreatedTime, before)
+		assert.LessOrEqual(t, card.CreatedTime, after)
+		assert.Zero(t, card.UsedTime)
+		assert.Zero(t, card.UsedSubscriptionId)
+	}
+}
+
+func TestGrantSubscriptionResetCardsUnknownUser(t *testing.T) {
+	truncateTables(t)
+
+	err := GrantSubscriptionResetCards(999, "测试卡", 1, 0)
+	require.Error(t, err)
+}

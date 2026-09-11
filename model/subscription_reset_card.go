@@ -1,6 +1,10 @@
 package model
 
 import (
+	"errors"
+
+	"github.com/QuantumNous/new-api/common"
+
 	"gorm.io/gorm"
 )
 
@@ -20,4 +24,35 @@ type SubscriptionResetCard struct {
 	UsedSubscriptionId int `json:"used_subscription_id"` // 核销的订阅 ID，审计追溯用
 
 	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+// maxSubscriptionResetCardsPerGrant 单次发放上限。
+const maxSubscriptionResetCardsPerGrant = 100
+
+// GrantSubscriptionResetCards 管理员向指定用户发放 count 张重置卡，同事务批量插入。
+func GrantSubscriptionResetCards(userId int, name string, count int, expiredTime int64) error {
+	if userId <= 0 {
+		return errors.New("invalid user id")
+	}
+	if count < 1 || count > maxSubscriptionResetCardsPerGrant {
+		return errors.New("count must be between 1 and 100")
+	}
+	now := common.GetTimestamp()
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var user User
+		if err := tx.Select("id").First(&user, userId).Error; err != nil {
+			return errors.New("user not found")
+		}
+		cards := make([]SubscriptionResetCard, count)
+		for i := range cards {
+			cards[i] = SubscriptionResetCard{
+				Name:        name,
+				UserId:      userId,
+				Status:      common.SubscriptionResetCardStatusUnused,
+				CreatedTime: now,
+				ExpiredTime: expiredTime,
+			}
+		}
+		return tx.Create(&cards).Error
+	})
 }
