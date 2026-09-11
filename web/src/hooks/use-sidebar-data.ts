@@ -33,6 +33,7 @@ import {
   Settings,
   ShieldCheck,
   Ticket,
+  TicketCheck,
   User,
   Users,
   Wallet,
@@ -151,6 +152,11 @@ export function useSidebarData(): SidebarData {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,
+          },
+          {
+            title: t('Reset Cards'),
+            url: '/reset-cards',
+            icon: TicketCheck,
           },
           {
             title: t('Subscriptions'),
