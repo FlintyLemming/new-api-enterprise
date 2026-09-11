@@ -168,6 +168,15 @@ export const STATIC_I18N_KEYS = [
   'Quota must be a positive number',
   'Successfully created {{count}} redemption codes',
 
+  // Reset cards
+  'Reset cards granted successfully',
+  'Reset card disabled',
+  'Reset card deleted',
+  'Failed to load reset cards',
+  'Reset card name length must be between 1-50',
+  'Count must be between 1 and 100',
+  'Please select a user',
+
   // Home page (constants-driven labels)
   'Cost Tracking',
   'Model Access',
