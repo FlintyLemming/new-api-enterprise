@@ -21,9 +21,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 const i18n = (await import('i18next')).default
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
-const { QueryClient, QueryClientProvider } = await import(
-  '@tanstack/react-query'
-)
+const { QueryClient, QueryClientProvider } =
+  await import('@tanstack/react-query')
 const { Toaster, toast } = await import('sonner')
 const { api } = await import('@/lib/api')
 const { ResetCardUseButton } = await import('../reset-card-use-button')
@@ -62,7 +61,9 @@ function renderButton(onUsed = () => undefined) {
 
 describe('reset card use button', () => {
   test('shows remaining count and stays enabled when cards are available', async () => {
-    apiClient.get = async () => ({ data: { success: true, data: { count: 2 } } })
+    apiClient.get = async () => ({
+      data: { success: true, data: { count: 2 } },
+    })
     renderButton()
     const button = await screen.findByRole('button', {
       name: /use reset card.*2/i,
@@ -71,7 +72,9 @@ describe('reset card use button', () => {
   })
 
   test('disables the button when no cards are available', async () => {
-    apiClient.get = async () => ({ data: { success: true, data: { count: 0 } } })
+    apiClient.get = async () => ({
+      data: { success: true, data: { count: 0 } },
+    })
     renderButton()
     const button = await screen.findByRole('button', {
       name: /use reset card/i,

@@ -61,7 +61,10 @@ export async function searchResetCards(
 export async function grantResetCards(
   payload: GrantResetCardsPayload
 ): Promise<ApiResponse<null>> {
-  const res = await api.post('/api/subscription/admin/reset_cards/grant', payload)
+  const res = await api.post(
+    '/api/subscription/admin/reset_cards/grant',
+    payload
+  )
   return res.data
 }
 

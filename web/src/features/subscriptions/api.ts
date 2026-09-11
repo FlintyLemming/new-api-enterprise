@@ -226,7 +226,7 @@ export async function getSelfResetCardCount(): Promise<
   return res.data
 }
 
-export async function useSubscriptionResetCard(
+export async function redeemSubscriptionResetCard(
   subscriptionId: number
 ): Promise<ApiResponse<{ card_id: number; subscription_id: number }>> {
   const res = await api.post('/api/subscription/self/reset_cards/use', {

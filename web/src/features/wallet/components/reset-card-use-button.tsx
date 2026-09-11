@@ -26,7 +26,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   getSelfResetCardCount,
-  useSubscriptionResetCard,
+  redeemSubscriptionResetCard,
 } from '@/features/subscriptions/api'
 import { handleServerError } from '@/lib/handle-server-error'
 
@@ -51,7 +51,7 @@ export function ResetCardUseButton(props: ResetCardUseButtonProps) {
   const count = data ?? 0
 
   const mutation = useMutation({
-    mutationFn: () => useSubscriptionResetCard(props.subscriptionId),
+    mutationFn: () => redeemSubscriptionResetCard(props.subscriptionId),
     onSuccess: (res) => {
       if (res.success) {
         toast.success(t('Subscription quota reset successfully'))

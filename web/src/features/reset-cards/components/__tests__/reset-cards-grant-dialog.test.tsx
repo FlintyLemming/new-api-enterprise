@@ -128,7 +128,9 @@ describe('reset card grant dialog', () => {
     fireEvent.change(screen.getByLabelText(/name/i), {
       target: { value: '9月补偿卡' },
     })
-    fireEvent.change(screen.getByLabelText(/count/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/count/i), {
+      target: { value: '2' },
+    })
     fireEvent.click(screen.getByRole('button', { name: /grant/i }))
 
     await waitFor(() => {

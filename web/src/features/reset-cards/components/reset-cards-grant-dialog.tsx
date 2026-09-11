@@ -222,7 +222,9 @@ export function ResetCardsGrantDialog(props: ResetCardsGrantDialogProps) {
                       onChange={(e) => field.onChange(e.target.valueAsNumber)}
                     />
                   </FormControl>
-                  <FormDescription>{t('1-100 cards per grant')}</FormDescription>
+                  <FormDescription>
+                    {t('1-100 cards per grant')}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
