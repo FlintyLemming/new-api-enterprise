@@ -55,6 +55,24 @@ import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { safeNumberFieldProps } from '../utils/numeric-field'
 
+/* eslint-disable react-refresh/only-export-components -- the caliber enum and
+   parser are the shared contract consumed by the billing section registry. */
+export const USAGE_STATS_CACHE_CALIBERS = [
+  'upstream',
+  'exclude_cache',
+  'include_cache',
+] as const
+export type UsageStatsCacheCaliber = (typeof USAGE_STATS_CACHE_CALIBERS)[number]
+
+export function parseUsageStatsCacheCaliber(
+  value: string | undefined
+): UsageStatsCacheCaliber {
+  return USAGE_STATS_CACHE_CALIBERS.includes(value as UsageStatsCacheCaliber)
+    ? (value as UsageStatsCacheCaliber)
+    : 'upstream'
+}
+/* eslint-enable react-refresh/only-export-components */
+
 const createPricingSchema = (t: (key: string) => string) =>
   z
     .object({
@@ -66,6 +84,7 @@ const createPricingSchema = (t: (key: string) => string) =>
       DisplayTokenStatEnabled: z.boolean(),
       general_setting: z.object({
         quota_display_type: z.enum(['USD', 'CNY', 'TOKENS', 'CUSTOM']),
+        usage_stats_cache_caliber: z.enum(USAGE_STATS_CACHE_CALIBERS),
         custom_currency_symbol: z.string().max(8).optional(),
         custom_currency_exchange_rate: z.coerce
           .number()
@@ -229,6 +248,56 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
               )}
             />
 
+            <FormField
+              control={form.control}
+              name='general_setting.usage_stats_cache_caliber'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Usage Stats Cache Caliber')}</FormLabel>
+                  <Select
+                    items={[
+                      { value: 'upstream', label: t('Upstream original') },
+                      {
+                        value: 'exclude_cache',
+                        label: t('Exclude cache tokens'),
+                      },
+                      {
+                        value: 'include_cache',
+                        label: t('Include cache tokens'),
+                      },
+                    ]}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('Select cache caliber')} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        <SelectItem value='upstream'>
+                          {t('Upstream original')}
+                        </SelectItem>
+                        <SelectItem value='exclude_cache'>
+                          {t('Exclude cache tokens')}
+                        </SelectItem>
+                        <SelectItem value='include_cache'>
+                          {t('Include cache tokens')}
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    {t(
+                      'Controls the prompt_tokens caliber written to usage logs: keep the upstream original, or normalize across providers to exclude/include cached tokens. Applies only to new logs; historical data is not backfilled and aggregates across a switch are not directly comparable. Billing and client responses are unaffected. If a channel is misdetected, set its cache_prompt_token_semantic channel setting instead.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {displayType !== 'TOKENS' && (
               <FormField
                 control={form.control}
@@ -238,9 +307,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     <FormLabel>
                       {displayType === 'CNY'
                         ? t('CNY per USD')
-                        : displayType === 'USD'
-                          ? t('USD Exchange Rate')
-                          : t('USD Exchange Rate')}
+                        : t('USD Exchange Rate')}
                     </FormLabel>
                     <FormControl>
                       <Input

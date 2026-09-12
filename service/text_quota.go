@@ -101,6 +101,38 @@ func checkedCacheWriteTokensTotal(summary textQuotaSummary) int {
 	return summary.CacheCreationTokens
 }
 
+// normalizeLogPromptTokens 把要落库的 prompt tokens 从当前口径换算到目标口径。
+// 当前口径由 summary.InputExcludesCache 标识；cache_write 总量取与日志
+// other.cache_write_tokens 一致的口径（5m/1h 拆分优先、饱和求和）。
+// 返回换算后的值、是否应用了换算、以及跳过原因（未应用时）。
+// 输出永不为负：任一步不满足即放弃换算并保持原值（最坏情况落回现状口径）。
+func normalizeLogPromptTokens(summary textQuotaSummary, target string) (promptTokens int, applied bool, skipReason string) {
+	cacheTotal := summary.CacheTokens + checkedCacheWriteTokensTotal(summary)
+	switch target {
+	case operation_setting.StatsCacheCaliberExcludeCache:
+		if summary.InputExcludesCache {
+			return summary.PromptTokens, false, "already_matches_target"
+		}
+		if cacheTotal <= 0 {
+			return summary.PromptTokens, false, "no_cache_tokens"
+		}
+		if summary.PromptTokens < cacheTotal {
+			return summary.PromptTokens, false, "prompt_less_than_cache"
+		}
+		return summary.PromptTokens - cacheTotal, true, ""
+	case operation_setting.StatsCacheCaliberIncludeCache:
+		if !summary.InputExcludesCache {
+			return summary.PromptTokens, false, "already_matches_target"
+		}
+		if cacheTotal <= 0 {
+			return summary.PromptTokens, false, "no_cache_tokens"
+		}
+		return summary.PromptTokens + cacheTotal, true, ""
+	default:
+		return summary.PromptTokens, false, "unsupported_target"
+	}
+}
+
 // checkUsageSourcesValid reports whether every raw upstream token count is
 // non-negative. It must run before CacheCreationTokensTotal, which clamps a
 // negative cache-write field to zero and would hide the broken source. The
@@ -672,9 +704,29 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
+	logPromptTokens := summary.PromptTokens
+	if caliber := operation_setting.GetUsageStatsCacheCaliber(); caliber != operation_setting.StatsCacheCaliberUpstream {
+		normalized, applied, skipReason := normalizeLogPromptTokens(summary, caliber)
+		upstreamCaliber := "include_cache"
+		if summary.InputExcludesCache {
+			upstreamCaliber = "exclude_cache"
+		}
+		marker := map[string]any{
+			"target":                 caliber,
+			"upstream_caliber":       upstreamCaliber,
+			"original_prompt_tokens": summary.PromptTokens,
+			"applied":                applied,
+		}
+		if !applied {
+			marker["skip_reason"] = skipReason
+		}
+		other.SetAdmin("stats_normalization", marker)
+		logPromptTokens = normalized
+	}
+
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
-		PromptTokens:     summary.PromptTokens,
+		PromptTokens:     logPromptTokens,
 		CompletionTokens: summary.CompletionTokens,
 		ModelName:        logModel,
 		TokenName:        summary.TokenName,
