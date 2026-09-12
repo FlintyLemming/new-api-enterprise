@@ -13,7 +13,7 @@
 | 分支 | 远端 | 定位 |
 | -- | -- | -- |
 | `main` | `upstream`（github.com/QuantumNous/new-api） | 上游镜像，**不放任何内部改动**，只做快进同步 |
-| `internal-custom` | `origin`（git.mitsea.com） | 内部部署实际使用的分支，= `main` + 若干 patch 分支的 merge |
+| `internal-custom` | `enterprise`（github.com/FlintyLemming/new-api-enterprise） | 内部部署实际使用的分支，= `main` + 若干 patch 分支的 merge |
 | `<type>/<topic>` | 视情况 | 单个改动的开发分支，从 `main` 切出 |
 
 `docs/internal/` 这个目录只存在于 `internal-custom`。要提给上游的分支一律从 `main` 切，台账目录自然不会出现在 PR diff 里。
