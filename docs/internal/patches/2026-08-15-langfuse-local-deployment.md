@@ -236,3 +236,17 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 本次执行构建、迁移、健康及静态资源验证，没有发起付费模型探测或重新进行 Langfuse E2E。代码级回归与三数据库矩阵见同步记录。本次部署已授权执行；没有推送 Git 或镜像到远端。
 
 回滚应用镜像：将 compose 的 `image: new-api:rc36-2422942fc` 改回 `image: new-api:rc30-d921bc998`，再执行同一 `up -d --no-deps --wait` 命令。不要自动恢复数据库备份：升级期间新写入的数据需要保留，schema 降级应单独核对；完整逻辑备份是恢复依据，不是无损即时回滚的承诺。
+
+
+## 11. 2026-09-12 重置卡 + 缓存统计口径镜像上线
+
+- 源码：`internal-custom` / `e6b8fc10d`（merge 提交），在 rc36 镜像（`2422942fc`）之上新增 21 个提交：订阅重置卡全链路（model/controller/web，12 个提交，`feat/subscription-reset-card` 已全部并入）+ 用量统计缓存口径（`feature/usage-stats-cache-caliber`，5 个提交，本次以 `--no-ff` 并入，冲突仅 2 个自动生成的 i18n untranslated 报告，已用 `bun run i18n:sync` 重新生成解决）。
+- 旧镜像：`new-api:rc36-2422942fc`，image `sha256:82eaafb9b0fe2d9cb1ad77ed5d72ffb93ec47a583a57fafc3a893bd49436c9e2`，仍保留本地。
+- 新镜像：`new-api:rc36-e6b8fc10d`，image `sha256:a63c1c2698c3ab36c97ef7ebf0352ae6dbcf4ad17d0d8f7f77e31c826cf36dd2`。沿用 §10 方式：`git archive HEAD` 导出干净上下文到 `/tmp/new-api-rc36-image-e6b8fc10d`，仅上下文内写入 `VERSION=v1.0.0-rc.36-internal-e6b8fc10d`，注入 OCI revision/version 标签。构建日志 `/tmp/new-api-rc36-image-build-e6b8fc10d.log`。
+- 数据库验证（部署前彩排）：生产 PG（postgres:15，8851）上建 `newapi_migtest` 库并导入生产 schema-only 拷贝（37 表）；用本次代码本地构建的二进制连该库启动两次（幂等），均一次迁移成功无报错。结果：仅新增 `subscription_reset_cards` 表（含 pkey + 2 个普通索引）；public schema 的 UNIQUE 约束与生产完全一致（生产侧 pgloader 遗留 `idx_<id>_*` 约束未被触碰）；彩排库多出的 `audit_logs` 系彩排未设 `LOG_SQL_DSN` 导致审计表落到主库，生产走 ClickHouse 不受影响。彩排后 `newapi_migtest` 已删除。本次无 go.mod/go.sum 变更，无 GORM/驱动版本变化。
+- 合并后回归：`go build ./...` 通过；`go test ./service/ ./setting/... ./model/ ./controller/` 全绿；前端 typecheck 通过、受影响测试（caliber 2 文件 5 用例、reset-card 2 文件 5 用例）通过、`bun run build` 成功。`bun run lint` 有 2 个上游既存 error（`scripts/sync-i18n.mjs`、`src/features/rankings/index.tsx`），与本次变更无关，未处理。
+- 备份目录：`/home/flintylemming/appdata/8850-new-api/backups/rc36-e6b8fc10d-20260912/`。包含 `compose.before.yaml`、PostgreSQL 完整逻辑备份 `postgres-before.dump`（434487782 字节，`pg_restore --list` 成功，722 个对象）、`postgres-contents.txt`、切换前容器 ID；目录权限 700、文件 600。ClickHouse 数据未导出（本次不变更日志库）。
+- 仅将 `/home/flintylemming/appdata/8850-new-api/compose.yaml` 中应用服务的 image 替换为新 tag，其余配置不动。执行 `docker compose -f ... up -d --no-deps --wait --wait-timeout 180 new-api`。应用于 10:46 UTC 启动，迁移约 2 秒完成，healthcheck healthy。
+- 验证：`/api/status` 返回 version=`v1.0.0-rc.36-internal-e6b8fc10d`；生产库确认 `subscription_reset_cards` 已建；首页与 7 个静态资源 HTTP 200；新容器 `6f82c4b263f0`，重启次数 0；PostgreSQL、ClickHouse、Redis 未被重建。未发起付费模型探测；重置卡端到端核销未在真实数据上演习。本次部署已授权执行；没有推送 Git 或镜像到远端。
+
+回滚应用镜像：将 compose 的 `image: new-api:rc36-e6b8fc10d` 改回 `image: new-api:rc36-2422942fc`，再执行同一 `up -d --no-deps --wait` 命令。注意：回滚镜像不会删除已创建的 `subscription_reset_cards` 表（旧代码不感知该表，保留无害）；数据库逻辑备份是恢复依据，不是无损即时回滚的承诺。
