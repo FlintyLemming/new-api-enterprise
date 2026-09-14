@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       branch: ${{ steps.version.outputs.branch }}
+      image: ${{ steps.version.outputs.image }}
       sha: ${{ steps.version.outputs.sha }}
       tag_prefix: ${{ steps.version.outputs.tag_prefix }}
       version: ${{ steps.version.outputs.version }}
@@ -39,15 +40,19 @@ jobs:
             exit 1
           fi
 
+          # GHCR 只接受小写路径，仓库名里的大写要转掉
+          IMAGE="ghcr.io/$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+
           SHA=$(git rev-parse HEAD)
           SHORT_SHA=$(git rev-parse --short HEAD)
           VERSION="${TAG_PREFIX}-$(date +'%Y%m%d')-${SHORT_SHA}"
 
           echo "branch=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "tag_prefix=$TAG_PREFIX" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Prepared Docker tags for $BRANCH_NAME at $SHORT_SHA"
+          echo "Prepared Docker tags for $BRANCH_NAME at $SHORT_SHA on $IMAGE"
 
   build_single_arch:
     name: Build & push (${{ matrix.arch }}) [native]
@@ -66,6 +71,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      packages: write
     steps:
       - name: Check out branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -81,18 +87,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata (labels)
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: |
-            calciumion/new-api
+            ${{ needs.prepare.outputs.image }}
 
       - name: Build & push single-arch
         id: build
@@ -102,8 +109,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }}-${{ matrix.arch }}
-            calciumion/new-api:${{ needs.prepare.outputs.version }}-${{ matrix.arch }}
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }}-${{ matrix.arch }}
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}-${{ matrix.arch }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -114,57 +121,59 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image with cosign
-        run: cosign sign --yes calciumion/new-api@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes ${{ needs.prepare.outputs.image }}@${{ steps.build.outputs.digest }}
 
       - name: Output digest
         run: |
           echo "### Docker Image Digest (${{ matrix.arch }})" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
-          echo "calciumion/new-api:${{ needs.prepare.outputs.version }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}-${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   create_manifests:
-    name: Create multi-arch manifests (Docker Hub)
+    name: Create multi-arch manifests (GHCR)
     needs: [prepare, build_single_arch]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
+      packages: write
     steps:
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@c99871dec2022cc055c062a10cc1a1310835ceb4 # v4.3.0
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create & push manifest (Docker Hub - branch)
+      - name: Create & push manifest (branch)
         run: |
           docker buildx imagetools create \
-            -t calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }} \
-            calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }}-amd64 \
-            calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }}-arm64
+            -t ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }} \
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }}-amd64 \
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }}-arm64
 
-      - name: Create & push manifest (Docker Hub - versioned)
+      - name: Create & push manifest (versioned)
         run: |
           docker buildx imagetools create \
-            -t calciumion/new-api:${{ needs.prepare.outputs.version }} \
-            calciumion/new-api:${{ needs.prepare.outputs.version }}-amd64 \
-            calciumion/new-api:${{ needs.prepare.outputs.version }}-arm64
+            -t ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }} \
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}-amd64 \
+            ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}-arm64
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign manifests with cosign
         run: |
-          cosign sign --yes calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }}
-          cosign sign --yes calciumion/new-api:${{ needs.prepare.outputs.version }}
+          cosign sign --yes ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }}
+          cosign sign --yes ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
 
       - name: Output manifest digest
         run: |
           echo "### Multi-arch Manifest Digests" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          docker buildx imagetools inspect calciumion/new-api:${{ needs.prepare.outputs.tag_prefix }} >> $GITHUB_STEP_SUMMARY
+          docker buildx imagetools inspect ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.tag_prefix }} >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
-          docker buildx imagetools inspect calciumion/new-api:${{ needs.prepare.outputs.version }} >> $GITHUB_STEP_SUMMARY
+          docker buildx imagetools inspect ${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }} >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

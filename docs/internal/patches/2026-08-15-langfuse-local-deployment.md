@@ -250,3 +250,16 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 验证：`/api/status` 返回 version=`v1.0.0-rc.36-internal-e6b8fc10d`；生产库确认 `subscription_reset_cards` 已建；首页与 7 个静态资源 HTTP 200；新容器 `6f82c4b263f0`，重启次数 0；PostgreSQL、ClickHouse、Redis 未被重建。未发起付费模型探测；重置卡端到端核销未在真实数据上演习。本次部署已授权执行；没有推送 Git 或镜像到远端。
 
 回滚应用镜像：将 compose 的 `image: new-api:rc36-e6b8fc10d` 改回 `image: new-api:rc36-2422942fc`，再执行同一 `up -d --no-deps --wait` 命令。注意：回滚镜像不会删除已创建的 `subscription_reset_cards` 表（旧代码不感知该表，保留无害）；数据库逻辑备份是恢复依据，不是无损即时回滚的承诺。
+
+
+## 12. 2026-09-14 镜像发布改走 GHCR（重置卡持卡人用户名）
+
+**这一节改的是"镜像从哪来"，不是一次上线记录。** 截至写下本节，镜像尚未构建、尚未部署，没有 digest 可记；实际上线后另起一节按 §10/§11 的格式补。
+
+- 代码：重置卡管理列表展示持卡人用户名（原来只有 `user_id`）。分支 `claude/reset-card-list-display-7d7qek`（`286e1bd`）已 `--no-ff` 合入 `internal-custom`，合并提交 `fcf8e49`，已推送远端。后端 `SubscriptionResetCard` 新增瞬态字段 `Username`（tag 为 `gorm:"-"`，只序列化不落库），由 `GetAllSubscriptionResetCards` / `SearchSubscriptionResetCards` 按当前页批量补全；**无表结构、无迁移、无索引变更**，回滚镜像不涉及 schema 处理。
+- 发布方式变更：`.github/workflows/docker-build.yml`（tag 触发）与 `.github/workflows/docker-image-branch.yml`（手动指定分支）原本推上游的公开仓库 `calciumion/new-api`，本 fork 既没有推送权限，推上去也不合适。两个 workflow 均改为推本仓库自己的 GHCR：`ghcr.io/flintylemming/new-api-enterprise`。镜像名由 `$GITHUB_REPOSITORY` 小写化后拼出，不再硬编码。
+- 认证与权限：登录从 `secrets.DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` 换成 `ghcr.io` + `github.actor` + 内置 `secrets.GITHUB_TOKEN`，**不再需要配置 Docker Hub secrets**。构建与 manifest 两个 job 都补上了 `packages: write`（manifest job 原先只有 `id-token: write`，推 GHCR 会 403）。cosign keyless 签名保留，签名同样写进 GHCR。
+- tag 规则不变：分支构建产出 `<分支名>`（如 `internal-custom`）与 `<分支名>-<日期>-<短 sha>`（如 `internal-custom-20260914-fcf8e49`）两个 manifest，外加每架构的 `-amd64` / `-arm64`；tag 构建产出 `<tag>` 与 `latest`。
+- 部署机取镜像：GHCR 包随私有仓库默认私有，8850 那台机器需要先 `docker login ghcr.io -u <用户名> -p <PAT>`（PAT 至少 `read:packages`），再 `docker pull ghcr.io/flintylemming/new-api-enterprise:<tag>`。compose 里 `pull_policy: never` 是按本机构建镜像设的，改用 GHCR 后要么先手动 `docker pull` 再保持 `never`，要么把该服务的 `pull_policy` 放开；两者都不要顺手改动其他服务。
+- §10/§11 的本机 `git archive` + `docker build` 方式继续有效，作为 CI 不可用或不想走 registry 时的兜底；那种方式产出的 tag 形如 `new-api:rc36-<短 sha>`，与 GHCR 的 tag 命名不冲突。
+- 本次没有触发任何构建：远程会话的出网策略拒绝了 Docker Hub 的 blob CDN（`production.cloudfront.docker.com:443` 返回 403），基础镜像拉不下来，本地构建在第一层就失败，因此镜像改由 CI 或部署机产出。
