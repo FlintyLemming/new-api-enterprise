@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/types"
 
 	"gorm.io/gorm"
 )
@@ -24,6 +25,9 @@ type SubscriptionResetCard struct {
 	ExpiredTime int64 `json:"expired_time" gorm:"bigint"` // 0 = 不过期
 
 	UsedSubscriptionId int `json:"used_subscription_id"` // 核销的订阅 ID，审计追溯用
+
+	// Username 仅用于管理端展示持卡人，不落库，由列表查询批量填充。
+	Username string `json:"username" gorm:"-"`
 
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
@@ -125,8 +129,13 @@ func GetAllSubscriptionResetCards(startIdx, num int) (cards []*SubscriptionReset
 	if err = DB.Model(&SubscriptionResetCard{}).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err = DB.Order("id desc").Limit(num).Offset(startIdx).Find(&cards).Error
-	return cards, total, err
+	if err = DB.Order("id desc").Limit(num).Offset(startIdx).Find(&cards).Error; err != nil {
+		return nil, 0, err
+	}
+	if err = fillSubscriptionResetCardUsernames(cards); err != nil {
+		return nil, 0, err
+	}
+	return cards, total, nil
 }
 
 // SearchSubscriptionResetCards 管理端搜索：keyword 为数字时匹配卡 ID 或用户 ID，
@@ -168,8 +177,45 @@ func SearchSubscriptionResetCards(keyword, status string, startIdx, num int) (ca
 	if err = query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&cards).Error
-	return cards, total, err
+	if err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&cards).Error; err != nil {
+		return nil, 0, err
+	}
+	if err = fillSubscriptionResetCardUsernames(cards); err != nil {
+		return nil, 0, err
+	}
+	return cards, total, nil
+}
+
+// fillSubscriptionResetCardUsernames 批量补全持卡人用户名，供管理端列表展示。
+// 已删除的用户查不到用户名，保持为空由前端回退到用户 ID。
+func fillSubscriptionResetCardUsernames(cards []*SubscriptionResetCard) error {
+	if len(cards) == 0 {
+		return nil
+	}
+	userIds := types.NewSet[int]()
+	for _, card := range cards {
+		if card.UserId > 0 {
+			userIds.Add(card.UserId)
+		}
+	}
+	if userIds.Len() == 0 {
+		return nil
+	}
+	var users []struct {
+		Id       int    `gorm:"column:id"`
+		Username string `gorm:"column:username"`
+	}
+	if err := DB.Model(&User{}).Select("id, username").Where("id IN ?", userIds.Items()).Find(&users).Error; err != nil {
+		return err
+	}
+	usernames := make(map[int]string, len(users))
+	for _, user := range users {
+		usernames[user.Id] = user.Username
+	}
+	for _, card := range cards {
+		card.Username = usernames[card.UserId]
+	}
+	return nil
 }
 
 // DisableSubscriptionResetCards 批量禁用未使用的卡，逐张校验（1..1000 个 ID）。

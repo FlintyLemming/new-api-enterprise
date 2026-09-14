@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
+import { LongText } from '@/components/long-text'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
 import { formatTimestampToDate } from '@/lib/format'
@@ -53,11 +54,30 @@ export function useResetCardsColumns(): ColumnDef<ResetCard>[] {
     },
     {
       accessorKey: 'user_id',
-      header: t('User ID'),
-      cell: ({ row }) => (
-        <span className='tabular-nums'>{row.getValue('user_id')}</span>
-      ),
-      size: 100,
+      header: t('User'),
+      cell: ({ row }) => {
+        const userId = row.getValue('user_id') as number
+        const username = row.original.username
+
+        if (!username) {
+          return <span className='tabular-nums'>{userId}</span>
+        }
+
+        return (
+          <div className='flex min-w-[120px] flex-col gap-0.5'>
+            <LongText className='max-w-[160px] text-sm font-medium'>
+              {username}
+            </LongText>
+            <span
+              data-table-text='secondary'
+              className='text-muted-foreground text-xs tabular-nums'
+            >
+              {t('User ID')}: {userId}
+            </span>
+          </div>
+        )
+      },
+      size: 180,
     },
     {
       accessorKey: 'status',
