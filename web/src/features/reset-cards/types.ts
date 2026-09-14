@@ -22,6 +22,8 @@ export const resetCardSchema = z.object({
   id: z.number(),
   name: z.string(),
   user_id: z.number(),
+  /** 持卡人用户名，由后端列表接口填充；用户已删除时可能缺失 */
+  username: z.string().optional(),
   status: z.number(),
   created_time: z.number(),
   used_time: z.number(),

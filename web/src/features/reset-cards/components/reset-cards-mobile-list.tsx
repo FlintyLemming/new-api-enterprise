@@ -104,6 +104,9 @@ export function ResetCardsMobileList(props: ResetCardsMobileListProps) {
         const card = row.original
         const expired = isResetCardExpired(card.expired_time, card.status)
         const statusConfig = RESET_CARD_STATUSES[card.status]
+        const owner = card.username
+          ? `${card.username} (${card.user_id})`
+          : `${t('User ID')}: ${card.user_id}`
 
         return (
           <div
@@ -116,7 +119,7 @@ export function ResetCardsMobileList(props: ResetCardsMobileListProps) {
                   {card.name}
                 </div>
                 <div className='text-muted-foreground text-[11px]'>
-                  ID: {card.id} · {t('User ID')}: {card.user_id}
+                  ID: {card.id} · {owner}
                 </div>
               </div>
               {expired ? (

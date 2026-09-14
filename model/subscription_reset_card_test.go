@@ -336,6 +336,27 @@ func TestSearchSubscriptionResetCardsFilters(t *testing.T) {
 	assert.Equal(t, 22, cards[0].Id)
 }
 
+func TestSubscriptionResetCardListsFillUsername(t *testing.T) {
+	truncateTables(t)
+	now := GetDBTimestamp()
+
+	seedResetCardUser(t, 130)
+	seedResetCard(t, &SubscriptionResetCard{Id: 30, Name: "补偿卡", UserId: 130, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: 0})
+	// 131 号用户不存在（已删除），用户名应留空，由前端回退到用户 ID
+	seedResetCard(t, &SubscriptionResetCard{Id: 31, Name: "补偿卡-无主", UserId: 131, Status: common.SubscriptionResetCardStatusUnused, CreatedTime: now, ExpiredTime: 0})
+
+	cards, _, err := GetAllSubscriptionResetCards(0, 10)
+	require.NoError(t, err)
+	require.Len(t, cards, 2)
+	assert.Equal(t, "", cards[0].Username, "用户已删除时用户名为空")
+	assert.Equal(t, "reset-card-user-130", cards[1].Username)
+
+	cards, _, err = SearchSubscriptionResetCards("130", "", 0, 10)
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	assert.Equal(t, "reset-card-user-130", cards[0].Username)
+}
+
 func TestDisableSubscriptionResetCards(t *testing.T) {
 	truncateTables(t)
 	seedResetCardUser(t, 109)
