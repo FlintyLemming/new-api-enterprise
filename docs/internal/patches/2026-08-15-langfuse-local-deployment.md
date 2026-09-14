@@ -263,3 +263,11 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 部署机取镜像：GHCR 包随私有仓库默认私有，8850 那台机器需要先 `docker login ghcr.io -u <用户名> -p <PAT>`（PAT 至少 `read:packages`），再 `docker pull ghcr.io/flintylemming/new-api-enterprise:<tag>`。compose 里 `pull_policy: never` 是按本机构建镜像设的，改用 GHCR 后要么先手动 `docker pull` 再保持 `never`，要么把该服务的 `pull_policy` 放开；两者都不要顺手改动其他服务。
 - §10/§11 的本机 `git archive` + `docker build` 方式继续有效，作为 CI 不可用或不想走 registry 时的兜底；那种方式产出的 tag 形如 `new-api:rc36-<短 sha>`，与 GHCR 的 tag 命名不冲突。
 - 本次没有触发任何构建：远程会话的出网策略拒绝了 Docker Hub 的 blob CDN（`production.cloudfront.docker.com:443` 返回 403），基础镜像拉不下来，本地构建在第一层就失败，因此镜像改由 CI 或部署机产出。
+
+**首次 GHCR 构建（2026-09-14 14:29–14:37 UTC）**：手动触发 `Publish Docker image (manual branch)`，输入分支 `internal-custom`，源码 `5564680`（即上面 `fcf8e49` 加本次 workflow 改动）。[run 34855970732](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/34855970732) 四个 job 全部成功：arm64 约 4 分 20 秒、amd64 约 6 分 20 秒（首次构建无 gha 缓存），manifest 合并与 cosign 签名正常。产出 tag：
+
+- `ghcr.io/flintylemming/new-api-enterprise:internal-custom`
+- `ghcr.io/flintylemming/new-api-enterprise:internal-custom-20260914-5564680`
+- 以及两者的 `-amd64` / `-arm64` 单架构 tag
+
+各架构 image digest 见该 run 的 summary。GHCR 登录、推送、`packages: write` 权限、cosign keyless 签名均已在真实运行中验证通过，不再需要 Docker Hub secrets。**镜像尚未部署到 8850**，本次只做构建。
