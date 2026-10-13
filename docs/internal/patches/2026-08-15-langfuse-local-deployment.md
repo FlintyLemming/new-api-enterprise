@@ -271,3 +271,17 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 以及两者的 `-amd64` / `-arm64` 单架构 tag
 
 各架构 image digest 见该 run 的 summary。GHCR 登录、推送、`packages: write` 权限、cosign keyless 签名均已在真实运行中验证通过，不再需要 Docker Hub secrets。**镜像尚未部署到 8850**，本次只做构建。
+
+
+## 13. 2026-10-13 rc.44 镜像构建
+
+**这一节只记镜像构建，8850 未部署。** 同步内容与部署前注意事项见[总台账 rc.44 节](../README.md#2026-10-13-同步上游-v100-rc44)。
+
+- 源码：上游 `v1.0.0-rc.44` 合并提交 `04f2b55c5`、台账 `a9fddc117`；合并后独立复核发现表达式计费的重复计费问题，修复提交 `e886f45ac`、台账 `bd8600f7b`。均已推送 GitHub `enterprise` 的 `internal-custom`（`main` 同步快进到 rc.44），GitLab 未推送。
+- 构建方式同 §12：`gh workflow run docker-image-branch.yml -R FlintyLemming/new-api-enterprise --ref internal-custom -f branch=internal-custom`。
+- 第一次：[run 38371351755](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/38371351755)，源码 `a9fddc117`，08:44:37–08:50:16 UTC，四个 job 成功（arm64 约 4 分 43 秒、amd64 约 5 分 1 秒）。产出 `:internal-custom-20261013-a9fddc1`（多架构 `sha256:41e30b8abd09c8ff8ed186b43573487978a376f8f33f9021b2b00c61fb5c584e`；amd64 `sha256:1f96c7dcd33d7d2f205105c7e7126202441cd8d960291273a205058bcb8e58e0`，arm64 `sha256:57d4b216205eb0b54df03a848b6c8c875eff2bc619f34d5026ad20c571f269bc`）。**这一版含上述计费问题，不要部署。** 它推的 `:internal-custom` 已被第二次构建覆盖。
+- 第二次：[run 38372695882](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/38372695882)，源码 `bd8600f7b`，08:56:00–09:02:26 UTC，四个 job 成功（arm64 约 5 分 26 秒、amd64 约 5 分 43 秒）。产出：
+  - `ghcr.io/flintylemming/new-api-enterprise:internal-custom`
+  - `ghcr.io/flintylemming/new-api-enterprise:internal-custom-20261013-bd8600f`
+  - 两者是同一个多架构清单 `sha256:51f39a7d8ef0b588f70cc474e33bbd2570f4328c7f2868482753b3b6d2fdd149`，另有各自的 `-amd64`（`sha256:67335d44206f84560545f27dae1499c9ef9938622695c25b40e3b0a7f9a53271`）/ `-arm64`（`sha256:d88648b551e1c89b0561fb5ced4a9ccd51ce19c29de05c131ca92ac6f2e1c011`）单架构 tag；cosign 签名正常。
+- 部署前（未执行）：沿用 §11 先在生产 schema-only 拷贝上彩排两次启动，重点看 rc.38 起对遗留单列 UNIQUE 约束的自动处理；做 PostgreSQL 逻辑备份；镜像取法和 `pull_policy` 注意事项同 §12。构建需要的 Go 1.26 已由上游 Dockerfile 处理，本机 `git archive` + `docker build` 兜底方式仍可用。
