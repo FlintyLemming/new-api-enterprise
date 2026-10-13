@@ -64,8 +64,9 @@ func singleCall(t *testing.T, node ast.Node, target string) token.Pos {
 	return positions[0]
 }
 
-// finalizer returns the deferred closure that owns the end of the request.
-func finalizer(t *testing.T, relay *ast.FuncDecl) *ast.FuncLit {
+// deferredCalling returns the top-level defer of Relay whose closure calls the
+// dotted target.
+func deferredCalling(t *testing.T, relay *ast.FuncDecl, target string) *ast.DeferStmt {
 	t.Helper()
 	for _, statement := range relay.Body.List {
 		deferred, ok := statement.(*ast.DeferStmt)
@@ -76,12 +77,18 @@ func finalizer(t *testing.T, relay *ast.FuncDecl) *ast.FuncLit {
 		if !ok {
 			continue
 		}
-		if len(callPositions(literal, "langfuse.Finish")) == 1 {
-			return literal
+		if len(callPositions(literal, target)) == 1 {
+			return deferred
 		}
 	}
-	require.FailNow(t, "no deferred finalizer calls langfuse.Finish")
+	require.FailNow(t, "no deferred closure calls "+target)
 	return nil
+}
+
+// finalizer returns the deferred closure that owns the end of the request.
+func finalizer(t *testing.T, relay *ast.FuncDecl) *ast.FuncLit {
+	t.Helper()
+	return deferredCalling(t, relay, "langfuse.Finish").Call.Fun.(*ast.FuncLit)
 }
 
 func TestRelayBeginsTracingRightAfterRelayInfo(t *testing.T) {
@@ -90,6 +97,8 @@ func TestRelayBeginsTracingRightAfterRelayInfo(t *testing.T) {
 	genRelayInfo := singleCall(t, relay, "relaycommon.GenRelayInfo")
 	begin := singleCall(t, relay, "langfuse.Begin")
 	assert.Greater(t, begin, genRelayInfo, "Begin needs the RelayInfo it reads")
+	// A request rejected while billing is reserved is still traced.
+	assert.Less(t, begin, singleCall(t, relay, "relay.PrepareRequestBilling"))
 
 	// Everything the retry loop does must already be inside the trace.
 	for _, statement := range relay.Body.List {
@@ -148,21 +157,16 @@ func TestRelayFinalizerOrdersBillingResponseAndTelemetry(t *testing.T) {
 	relay := relayFunction(t)
 	closure := finalizer(t, relay)
 
-	normalize := singleCall(t, closure, "service.NormalizeViolationFeeError")
-	refund := singleCall(t, closure, "relayInfo.Billing.Refund")
-	violationFee := singleCall(t, closure, "service.ChargeViolationFeeIfNeeded")
 	setMessage := singleCall(t, closure, "newAPIError.SetMessage")
 	finish := singleCall(t, closure, "langfuse.Finish")
-
-	assert.Less(t, normalize, refund, "the error is normalized before the refund")
-	assert.Less(t, refund, violationFee)
-	assert.Less(t, violationFee, setMessage, "billing settles before the client response is written")
 	assert.Less(t, setMessage, finish,
 		"the root output must be the normalized error the client actually received")
 
-	// The refund and violation fee only run once the billing phase was reached.
-	assert.Len(t, callPositions(relay, "relayInfo.Billing.Refund"), 1,
-		"the separate refund defer must be gone")
+	// Defers run in reverse order: the refund defer is registered after the
+	// finalizer, so the refund and violation fee settle before the response.
+	singleCall(t, relay, "relay.RefundFailedRequestBilling")
+	refund := deferredCalling(t, relay, "relay.RefundFailedRequestBilling")
+	assert.Greater(t, refund.Pos(), deferredCalling(t, relay, "langfuse.Finish").Pos())
 }
 
 func TestRelayFinalizerRePanicsAfterClosingTelemetry(t *testing.T) {
@@ -195,29 +199,17 @@ func TestRelayFinalizerRePanicsAfterClosingTelemetry(t *testing.T) {
 	assert.Less(t, finish, rePanic, "telemetry is closed before the panic resumes unwinding")
 }
 
-func TestRelayReachesTheBillingPhaseAtOneJoinedPoint(t *testing.T) {
+func TestRelayRefundsOnlyAfterBillingWasReserved(t *testing.T) {
 	relay := relayFunction(t)
 
-	var freeModelBranch *ast.IfStmt
-	var assignments []token.Pos
-	ast.Inspect(relay, func(node ast.Node) bool {
-		switch statement := node.(type) {
-		case *ast.IfStmt:
-			if selector, ok := statement.Cond.(*ast.SelectorExpr); ok && selector.Sel.Name == "FreeModel" {
-				freeModelBranch = statement
-			}
-		case *ast.AssignStmt:
-			for _, target := range statement.Lhs {
-				if ident, ok := target.(*ast.Ident); ok && ident.Name == "billingPhaseReached" {
-					assignments = append(assignments, statement.Pos())
-				}
-			}
-		}
-		return true
-	})
+	prepare := singleCall(t, relay, "relay.PrepareRequestBilling")
+	refund := deferredCalling(t, relay, "relay.RefundFailedRequestBilling")
+	assert.Greater(t, refund.Pos(), prepare,
+		"a request rejected before its reservation has nothing to refund")
 
-	require.NotNil(t, freeModelBranch, "the free model branch is gone")
-	require.Len(t, assignments, 1, "the billing phase must be marked at exactly one joined point")
-	assert.Greater(t, assignments[0], freeModelBranch.End(),
-		"neither the free nor the pre-consume branch may set the flag on its own")
+	for _, statement := range relay.Body.List {
+		if loop, ok := statement.(*ast.ForStmt); ok {
+			assert.Less(t, refund.Pos(), loop.Pos(), "every attempt runs under the refund defer")
+		}
+	}
 }

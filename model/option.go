@@ -220,29 +220,53 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
+	requestPolicyOptionMutex.Lock()
+	defer requestPolicyOptionMutex.Unlock()
+	defer func() {
+		if err := refreshRequestPolicySnapshot(); err != nil {
+			common.SysError(common.LogText("invalid request policy: %s", err.Error()))
+		}
+	}()
+	passkeyOptionMutex.Lock()
+	defer passkeyOptionMutex.Unlock()
 	options, _ := AllOption()
+	passkeyOptions := make(map[string]string)
 	for _, option := range options {
+		if IsPasskeyDomainOption(option.Key) {
+			passkeyOptions[option.Key] = option.Value
+			continue
+		}
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
-			common.SysLog("failed to update option map: " + err.Error())
+			common.SysLog(common.LogText("failed to update option map: %s", err.Error()))
 		}
 	}
+	applyPasskeyDomainOptions(passkeyOptions)
 }
 
 func SyncOptions(frequency int) {
 	for {
 		time.Sleep(time.Duration(frequency) * time.Second)
-		common.SysLog("syncing options from database")
+		common.SysLog(common.LogText("syncing options from database"))
 		loadOptionsFromDatabase()
 	}
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == legacyAccessTokenRetireAtKey {
+		return errLegacyRetireAtReadOnly
+	}
+	if err := operation_setting.ValidateQuotaOption(key, value); err != nil {
+		return err
+	}
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
 	}
 	if key == operation_setting.ChannelTestConcurrencyOptionKey {
 		return operation_setting.ValidateChannelTestConcurrency(value)
+	}
+	if key == operation_setting.LogMaxRangeDaysOptionKey {
+		return operation_setting.ValidateLogMaxRangeDays(value)
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
@@ -257,6 +281,13 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
+	if IsRequestPolicyOption(key) {
+		return UpdateRequestPolicyOptions(map[string]string{key: value})
+	}
+	if IsPasskeyDomainOption(key) {
+		_, err := UpdatePasskeyDomainOptions(map[string]string{key: value}, false, "")
+		return err
+	}
 	if IsModelPricingOption(key) {
 		return UpdateModelPricingOptions(map[string]string{key: value})
 	}
@@ -287,11 +318,37 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	for key := range values {
+		if IsPasskeyDomainOption(key) {
+			_, err := UpdatePasskeyDomainOptions(values, false, "")
+			return err
+		}
+	}
 	for key, value := range values {
 		if err := validateOptionValue(key, value); err != nil {
 			return err
 		}
 	}
+	var policySnapshot *RequestPolicySnapshot
+	for key := range values {
+		if IsRequestPolicyOption(key) {
+			requestPolicyOptionMutex.Lock()
+			defer requestPolicyOptionMutex.Unlock()
+			options := maps.Clone(CurrentRequestPolicy().Options)
+			for key, value := range values {
+				if IsRequestPolicyOption(key) {
+					options[key] = value
+				}
+			}
+			var err error
+			policySnapshot, err = BuildRequestPolicy(options)
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
+
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		for k, v := range values {
 			option := Option{Key: k}
@@ -313,11 +370,14 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 	}
+	if policySnapshot != nil {
+		requestPolicySnapshot.Store(policySnapshot)
+	}
 	return nil
 }
 
 func updateOptionMap(key string, value string) (err error) {
-	if key == retiredThemeOptionKey {
+	if key == retiredThemeOptionKey || key == legacyAccessTokenRetireAtKey {
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, key)
 		common.OptionMapRWMutex.Unlock()

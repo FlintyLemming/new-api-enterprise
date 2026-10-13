@@ -29,7 +29,7 @@ type FlowSecurity struct {
 
 func CreateSessionDataFlow(purpose string, security FlowSecurity, data *webauthn.SessionData) (string, int64, error) {
 	if data == nil {
-		return "", 0, errors.New("Passkey 会话数据不能为空")
+		return "", 0, errors.New("passkey session data is empty")
 	}
 	if purpose == model.AuthFlowPurposeLoginPasskey {
 		if security.UserID <= 0 || security.UserAuthVersion <= 0 || security.LoginFlowID <= 0 || security.LoginExpiresAt <= time.Now().Unix() || security.SessionID != "" || security.SessionVersion != 0 {
@@ -71,6 +71,12 @@ func PopSessionDataFlow(token, purpose string, identity model.AuthSessionIdentit
 	}, func(tx *gorm.DB, flow *model.AuthFlow) error {
 		if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
 			return err
+		}
+		if payload.SessionData.RelyingPartyID == "" || payload.SessionData.Expires.IsZero() {
+			return model.ErrAuthFlowInvalid
+		}
+		if !time.Now().Before(payload.SessionData.Expires) {
+			return model.ErrAuthFlowExpired
 		}
 		if purpose == model.AuthFlowPurposePasskeyLogin {
 			return nil

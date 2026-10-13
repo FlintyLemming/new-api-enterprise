@@ -190,6 +190,21 @@ describe('PluginDetailSheet host protocol endpoints', () => {
     expect(screen.queryByText('background')).toBeNull()
   })
 
+  test('given an openai_image string claim, both synchronous image endpoints render as submit rows without mode chips', async () => {
+    renderSheet({ protocols: ['openai_image'] })
+
+    expect(
+      await screen.findByText('/v1/images/generations')
+    ).toBeInTheDocument()
+    expect(screen.getByText('/v1/images/edits')).toBeInTheDocument()
+    expect(endpointRow('/v1/images/generations').textContent).toContain('POST')
+    expect(endpointRow('/v1/images/edits').textContent).toContain('POST')
+    expect(screen.queryByText('Retrieve result')).toBeNull()
+    expect(screen.queryByText('stream')).toBeNull()
+    expect(screen.queryByText('sync')).toBeNull()
+    expect(screen.queryByText('background')).toBeNull()
+  })
+
   test('given a claim narrowing the protocol to a model subset, the subset is marked without printing the model list', async () => {
     renderSheet({
       models: ['kling-v1', 'kling-v2-master'],
@@ -547,4 +562,64 @@ test('comparison selection shows loading, retries failure, and resets after reop
     screen.getByRole('combobox', { name: 'Select a version to compare' })
   ).toHaveValue('')
   expect(screen.queryByText(/previous source/)).toBeNull()
+})
+
+test.each([true, false])(
+  'shows model usage profiles and only displays defaults for ungrouped models (%s)',
+  async (hasDefaultModel) => {
+    const user = userEvent.setup()
+    renderSheet({
+      models: hasDefaultModel
+        ? ['image', 'video', 'legacy']
+        : ['image', 'video'],
+      usageSchema: {
+        fallback_units: { type: 'number', unit: 'count' },
+      },
+      usageProfiles: [
+        {
+          models: ['image'],
+          schema: { image_count: { type: 'number', unit: 'count' } },
+        },
+        {
+          models: ['video'],
+          schema: {
+            seconds: { type: 'number', unit: 'second' },
+            resolution: { enum: ['720P', '1080P'] },
+          },
+        },
+      ],
+    })
+    await user.click(screen.getByRole('tab', { name: 'Billing parameters' }))
+    const image = within(screen.getByRole('region', { name: 'image' }))
+    expect(image.getByText('image_count')).toBeVisible()
+    expect(image.queryByText('seconds')).not.toBeInTheDocument()
+    expect(image.queryByText('resolution')).not.toBeInTheDocument()
+    const video = within(screen.getByRole('region', { name: 'video' }))
+    expect(video.getByText('seconds')).toBeVisible()
+    expect(video.getByText('resolution')).toBeVisible()
+    expect(video.queryByText('image_count')).not.toBeInTheDocument()
+    if (hasDefaultModel) {
+      const defaults = within(screen.getByRole('region', { name: 'Default' }))
+      expect(defaults.getByText('legacy')).toBeVisible()
+      expect(defaults.getByText('fallback_units')).toBeVisible()
+      expect(defaults.queryByText('image')).not.toBeInTheDocument()
+    } else {
+      expect(
+        screen.queryByRole('region', { name: 'Default' })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('fallback_units')).not.toBeInTheDocument()
+    }
+  }
+)
+
+test('keeps the billing parameter table for plugins without usage profiles', async () => {
+  const user = userEvent.setup()
+  renderSheet({
+    usageSchema: { seconds: { type: 'number', unit: 'second' } },
+  })
+  await user.click(screen.getByRole('tab', { name: 'Billing parameters' }))
+  expect(within(screen.getByRole('table')).getByText('seconds')).toBeVisible()
+  expect(
+    screen.queryByText('No billing parameters declared')
+  ).not.toBeInTheDocument()
 })

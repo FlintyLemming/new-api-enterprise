@@ -120,8 +120,8 @@ test('loading keeps installation disabled and footer outside the bounded scroll 
   const dialog = screen.getByRole('dialog')
   expect(dialog).toHaveClass(
     'sm:max-w-3xl',
-    'max-h-[calc(100vh-2rem)]',
-    'overflow-hidden'
+    'max-h-[var(--dialog-available-height,calc(100dvh-2rem))]',
+    'overflow-y-auto'
   )
   const footer = dialog.querySelector('[data-slot=dialog-footer]')
   const body = [...dialog.children].find((element) =>
@@ -304,6 +304,31 @@ test('keyboard users can expand the full model list and inspect a protocol model
   expect(scope).toHaveAttribute('aria-expanded', 'true')
   const scopePanel = screen.getByRole('dialog', { name: 'Model scope' })
   expect(within(scopePanel).getByText('incho_music')).toBeVisible()
+})
+
+test('model constants show source models without an unreadable metadata warning', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        new Response(`
+      const MODELS = ['jev-1.13.0', 'jev-latest', 'jev-preview'];
+      export const meta = {models: MODELS};
+      function validate(model) { return MODELS.includes(model); }
+    `)
+    )
+  )
+  renderDialog()
+  const models = screen.getByRole('region', { name: 'Supported models' })
+  expect(await within(models).findByText('jev-1.13.0')).toBeVisible()
+  expect(within(models).getByText('jev-latest')).toBeVisible()
+  expect(within(models).getByText('jev-preview')).toBeVisible()
+  expect(
+    within(models).queryByText('From marketplace index')
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByText('Some plugin information could not be read')
+  ).not.toBeInTheDocument()
 })
 
 test('unreadable metadata can be retried without preventing installation or inventing domain restrictions', async () => {
@@ -504,7 +529,7 @@ test('a late response for the previous version cannot replace the selected sourc
   })
   const { reopen } = renderDialog(false, undefined, true)
   const selector = screen.getByRole('combobox', { name: 'Select version' })
-  selector.focus()
+  await user.click(selector)
   await user.keyboard('1.0{ArrowDown}{Enter}')
   await waitFor(() =>
     expect(
@@ -693,4 +718,54 @@ test('a factory plugin uses its built-in source as the diff baseline and install
   await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
   await waitFor(() => expect(observer.getCurrentResult().data).toEqual(updated))
   unsubscribe()
+})
+
+test('changelog is fetched only after opening its tab and a missing log does not block installation', async () => {
+  const user = userEvent.setup()
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url.endsWith('CHANGELOG.md')) return new Response(null, { status: 404 })
+    return new Response(source)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  renderDialog()
+  const install = screen.getByRole('button', { name: 'Install and enable' })
+  await waitFor(() => expect(install).toBeEnabled())
+  expect(
+    fetchMock.mock.calls.some(([url]) => url.endsWith('CHANGELOG.md'))
+  ).toBe(false)
+  const changelog = screen.getByRole('tab', { name: 'Changelog' })
+  changelog.focus()
+  await user.keyboard('{Enter}')
+  expect(changelog).toHaveAttribute('aria-selected', 'true')
+  expect(
+    await screen.findByText('No changelog for this version.')
+  ).toBeVisible()
+  expect(install).toBeEnabled()
+  expect(api.installMarketplacePlugin).not.toHaveBeenCalled()
+})
+
+test('changing the selected version while reading changelog keeps that tab open', async () => {
+  const user = userEvent.setup()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.endsWith('CHANGELOG.md')) {
+        return new Response(null, { status: 404 })
+      }
+      return new Response(source)
+    })
+  )
+  api.getTaskPlugin.mockResolvedValue({ meta: { version: '1.0' }, source })
+  renderDialog(true, undefined, true)
+  const changelog = screen.getByRole('tab', { name: 'Changelog' })
+  await user.click(changelog)
+  expect(
+    await screen.findByText('No changelog for this version.')
+  ).toBeVisible()
+  await user.click(screen.getByRole('combobox', { name: 'Select version' }))
+  await user.click(screen.getByRole('option', { name: '1.0 · Active version' }))
+  expect(changelog).toHaveAttribute('aria-selected', 'true')
+  await waitFor(() =>
+    expect(screen.getByText('Could not load the changelog')).toBeVisible()
+  )
 })

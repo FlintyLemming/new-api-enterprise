@@ -79,7 +79,7 @@ func TestRecordConsumeLogPersistsDurationMs(t *testing.T) {
 			otherMetadata.MergePublic(tc.other)
 			RecordConsumeLog(newDurationTestContext(), 1, RecordConsumeLogParams{
 				ModelName:     "gpt-test",
-				Content:       "test",
+				Content:       []*common.Message{common.NewMessage("test")},
 				UseTimeMillis: tc.useTimeMillis,
 				Other:         otherMetadata,
 			})

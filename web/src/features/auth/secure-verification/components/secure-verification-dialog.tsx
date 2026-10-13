@@ -26,6 +26,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import type { PasskeyDomains } from '../../passkey/assertion'
+import { PasskeyDomainSelector } from '../../passkey/components/passkey-domain-selector'
 import type {
   SecureVerificationState,
   VerificationInput,
@@ -34,7 +36,8 @@ import type {
 
 interface SecureVerificationDialogProps {
   state: SecureVerificationState
-  onVerify: () => void | Promise<void>
+  passkeyDomains?: PasskeyDomains | null
+  onVerify: (input?: VerificationInput) => void | Promise<void>
   onCancel: () => void
   onRetry: () => void
   onInputChange: (input: VerificationInput) => void
@@ -67,9 +70,8 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
   if (input?.method === '2fa') {
     canVerify = canVerify && input.code.trim().length >= 6
   }
-  if (input?.method === 'oauth') {
-    canVerify = canVerify && Boolean(input.provider)
-  }
+  // Linked-account verification starts from the provider button itself.
+  const showSubmit = state.phase !== 'error' && input?.method !== 'oauth'
   const error = 'error' in state ? state.error : undefined
   const formId = `${inputId}-form`
 
@@ -120,11 +122,12 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
           <Button type='button' variant='outline' onClick={props.onCancel}>
             {t('Cancel')}
           </Button>
-          {state.phase === 'error' ? (
+          {state.phase === 'error' && (
             <Button type='button' onClick={props.onRetry}>
               {t('Retry')}
             </Button>
-          ) : (
+          )}
+          {showSubmit && (
             <Button type='submit' form={formId} disabled={!canVerify}>
               {verifying && <Loader2 className='size-4 animate-spin' />}
               {t('Verify')}
@@ -223,7 +226,15 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
                     : t('Enter the 6-digit authenticator code.')}
                 </p>
               </TabsContent>
-              <TabsContent value='passkey'>
+              <TabsContent value='passkey' className='space-y-3'>
+                <PasskeyDomainSelector
+                  domains={props.passkeyDomains}
+                  value={input.method === 'passkey' ? input.rpID : undefined}
+                  onChange={(rpID) =>
+                    props.onInputChange({ method: 'passkey', rpID })
+                  }
+                  disabled={verifying}
+                />
                 <p className='text-muted-foreground flex items-center gap-2 text-sm'>
                   <KeyRound className='size-5' />
                   {t(
@@ -242,25 +253,20 @@ export function SecureVerificationDialog(props: SecureVerificationDialogProps) {
                     <Button
                       key={provider.slug}
                       type='button'
-                      variant={
-                        input.method === 'oauth' &&
-                        input.provider === provider.slug
-                          ? 'default'
-                          : 'outline'
-                      }
-                      aria-pressed={
-                        input.method === 'oauth' &&
-                        input.provider === provider.slug
-                      }
                       disabled={verifying}
                       onClick={() =>
-                        props.onInputChange({
+                        void props.onVerify({
                           method: 'oauth',
                           provider: provider.slug,
                         })
                       }
                     >
-                      {provider.name}
+                      {verifying &&
+                        input.method === 'oauth' &&
+                        input.provider === provider.slug && (
+                          <Loader2 className='size-4 animate-spin' />
+                        )}
+                      {t('Continue with {{name}}', { name: provider.name })}
                     </Button>
                   ))}
                 </div>

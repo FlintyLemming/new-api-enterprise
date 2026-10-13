@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -120,7 +119,11 @@ func UseSubscriptionResetCard(userId, subscriptionId int) (*SubscriptionResetCar
 	card.Status = common.SubscriptionResetCardStatusUsed
 	card.UsedTime = now
 	card.UsedSubscriptionId = subscriptionId
-	RecordLog(userId, LogTypeManage, fmt.Sprintf("使用订阅重置卡（ID: %d）清零订阅（ID: %d，套餐 %s）当前周期已用额度并重启重置周期", card.Id, sub.Id, plan.Title))
+	RecordLog(userId, LogTypeManage, common.NewMessage("Used subscription reset card (ID: {{card_id}}) to clear the current-period usage of subscription (ID: {{subscription_id}}, plan {{plan}}) and restart its reset cycle", map[string]any{
+		"card_id":         card.Id,
+		"subscription_id": sub.Id,
+		"plan":            plan.Title,
+	}))
 	return &card, nil
 }
 
@@ -261,7 +264,7 @@ func DisableSubscriptionResetCards(ids []int) (int64, error) {
 // DeleteSubscriptionResetCardById 软删除，只影响管理端展示。
 func DeleteSubscriptionResetCardById(id int) error {
 	if id <= 0 {
-		return errors.New("id 为空！")
+		return common.NewMessage("ID is empty!")
 	}
 	var card SubscriptionResetCard
 	if err := DB.Where("id = ?", id).First(&card).Error; err != nil {

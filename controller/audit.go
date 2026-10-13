@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -27,8 +29,10 @@ var auditContentTemplates = map[string]string{
 	"user.binding_clear":        "Cleared ${bindingType} binding for user ${username}",
 	"user.2fa_disable":          "Force-disabled two-factor authentication for the user",
 	"user.passkey_register":     "Registered a passkey",
-	"access_token.generate":     "Generated a system access token",
-	"access_token.revoke":       "Revoked the system access token",
+	"access_token.generate":     "Generated an access token",
+	"access_token.revoke":       "Revoked an access token",
+	"access_token.rename":       "Renamed an access token",
+	"access_token.update":       "Changed access token permissions",
 	"user.2fa_setup":            "Started two-factor authentication setup",
 	"user.2fa_enable":           "Enabled two-factor authentication",
 	"user.2fa_disable_self":     "Disabled two-factor authentication",
@@ -42,6 +46,11 @@ var auditContentTemplates = map[string]string{
 	"user.passkey_delete":       "Deleted a passkey",
 	"user.reset_passkey":        "Reset the user passkey",
 	"option.update":             "Updated system setting ${key}",
+
+	"option.passkey_domains":           "Updated Passkey domains: removed ${domains}; affected ${known}; unknown ${unknown}",
+	"option.passkey_domains_confirmed": "Confirmed removal of Passkey domains: ${domains}; affected ${known}; unknown ${unknown}",
+	"option.passkey_domains_blocked":   "Passkey domain change blocked: ${domains}; affected ${known}; unknown ${unknown}",
+	"option.passkey_domains_failed":    "Passkey domain update failed",
 
 	"channel.create":             "Created channel ${name} (type ${type}, count ${count})",
 	"channel.update":             "Updated channel ${name} (ID: ${id})",
@@ -61,12 +70,40 @@ var auditContentTemplates = map[string]string{
 	"redemption.create":       "Created ${count} redemption codes named ${name} (${quota} each)",
 	"redemption.delete_batch": "Batch deleted ${count} redemption codes",
 
-	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
-	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
+	"subscription.plan_reset":       "Reset active subscriptions for plan ${plan_id}",
+	"subscription.user_plan_reset":  "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
+	"subscription.user_quota_reset": "Administrator reset the quota of subscription plan ${plan_title} (ID: ${plan_id})",
 
 	"subscription_reset_card.grant":   "Granted ${count} subscription reset cards named ${name} to user ${target_user_id}",
 	"subscription_reset_card.disable": "Disabled ${count} subscription reset cards",
 	"subscription_reset_card.delete":  "Deleted subscription reset card ${card_id}",
+}
+
+func recordPasskeyDomainAudit(c *gin.Context, change *model.PasskeyDomainChange, confirmed bool, err error) {
+	confirmed = confirmed && err == nil && change != nil && len(change.RemovedRPIDs) > 0
+	params := map[string]any{"success": err == nil, "confirmed": confirmed}
+	if change != nil {
+		params["domains"] = strings.Join(change.RemovedRPIDs, ", ")
+		params["removed_rp_ids"] = change.RemovedRPIDs
+		params["known"] = change.AffectedCredentials
+		params["unknown"] = change.UnknownCredentials
+		params["previous_rp_id"] = change.PreviousRPID
+		params["effective_rp_id"] = change.EffectiveRPID
+	}
+	action := "option.passkey_domains"
+	if errors.Is(err, model.ErrPasskeyDomainRemovalConfirmation) {
+		action = "option.passkey_domains_blocked"
+	} else if err != nil {
+		action = "option.passkey_domains_failed"
+	} else if confirmed && change != nil && len(change.RemovedRPIDs) > 0 {
+		action = "option.passkey_domains_confirmed"
+	}
+	auditInfo := &model.AuditRequestInfo{
+		Method: c.Request.Method, Route: c.FullPath(), Path: c.FullPath(),
+		Status: c.Writer.Status(), Success: err == nil,
+	}
+	model.RecordOperationAuditLog(c.GetInt("id"), c.GetInt("role"), auditContentEN(action, params), c.ClientIP(), action, params, auditOperatorInfo(c), auditInfo, c)
+	markAuditLogged(c)
 }
 
 // auditContentEN 按 action 模板渲染英文兜底文本；未登记的 action 退回 action 本身。
@@ -134,6 +171,12 @@ func recordUserSecurityAudit(c *gin.Context, userId int, action string, params m
 			params = map[string]any{}
 		}
 		params["code"] = code
+	}
+	if c.GetBool("use_access_token") {
+		if params == nil {
+			params = map[string]any{}
+		}
+		params["token_ref"] = c.GetString("access_token_ref")
 	}
 	var auditInfo *model.AuditRequestInfo
 	if success, ok := params["success"].(bool); ok {

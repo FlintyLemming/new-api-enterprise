@@ -3,6 +3,7 @@ package service
 import (
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -27,7 +28,9 @@ type TieredResultWrapper = billingexpr.TieredResult
 // include the cache/image/audio sub-buckets. Subtractions from P only apply
 // when it is true; when the upstream already reports an exclusive caliber,
 // those sub-bucket tokens are not part of P and must not be subtracted
-// again. It has no effect under Claude usage semantics.
+// again, and cache reads without their own cr price are added to P exactly
+// as under Claude usage semantics. It has no effect under Claude usage
+// semantics.
 func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, promptTokensIncludeCache bool, usedVars map[string]bool) billingexpr.TokenParams {
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)
@@ -41,6 +44,37 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 	}
 
 	img := float64(usage.PromptTokensDetails.ImageTokens)
+	imgCR := float64(0)
+	if usedVars["img_cr"] && !isClaudeUsageSemantic {
+		details := usage.PromptTokensDetails.CachedTokensDetails
+		if details != nil && details.ImageTokens != nil {
+			cachedImage := *details.ImageTokens
+			cached := usage.PromptTokensDetails.CachedTokens
+			image := usage.PromptTokensDetails.ImageTokens
+			valid := cachedImage >= 0 && cached >= cachedImage && image >= cachedImage &&
+				cached <= usage.PromptTokens && image <= usage.PromptTokens-(cached-cachedImage)
+			if valid {
+				remaining := cached - cachedImage
+				for _, count := range []*int{details.TextTokens, details.AudioTokens} {
+					if count == nil {
+						continue
+					}
+					if *count < 0 || *count > remaining {
+						valid = false
+						break
+					}
+					remaining -= *count
+				}
+			}
+			if valid {
+				imgCR = float64(cachedImage)
+				cr -= imgCR
+				img -= imgCR
+			} else {
+				common.SysError(common.LogText("invalid image cache token breakdown; using aggregate cache billing"))
+			}
+		}
+	}
 	ai := float64(usage.PromptTokensDetails.AudioTokens)
 	imgO := float64(usage.CompletionTokenDetails.ImageTokens)
 	ao := float64(usage.CompletionTokenDetails.AudioTokens)
@@ -53,7 +87,13 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 		inputLen = p + cr + cc5m + cc1h
 	}
 
-	if !isClaudeUsageSemantic {
+	if isClaudeUsageSemantic {
+		// Anthropic input excludes cache reads. When cr has no separate
+		// price, merge those tokens into the input category instead.
+		if !usedVars["cr"] {
+			p += cr
+		}
+	} else {
 		// Subtract sub-buckets from P only when the raw upstream prompt
 		// actually includes them; an exclusive caliber already excluded
 		// cache/image/audio counts from prompt_tokens.
@@ -70,9 +110,16 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 			if usedVars["img"] {
 				p -= img
 			}
+			if usedVars["img_cr"] {
+				p -= imgCR
+			}
 			if usedVars["ai"] {
 				p -= ai
 			}
+		} else if !usedVars["cr"] {
+			// An exclusive caliber reports cache reads outside the prompt, as
+			// Anthropic input does, so unpriced cache reads fold into input.
+			p += cr
 		}
 		if usedVars["img_o"] {
 			c -= imgO
@@ -92,16 +139,17 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 	}
 
 	return billingexpr.TokenParams{
-		P:    p,
-		C:    c,
-		Len:  inputLen,
-		CR:   cr,
-		CC:   cc5m,
-		CC1h: cc1h,
-		Img:  img,
-		ImgO: imgO,
-		AI:   ai,
-		AO:   ao,
+		P:     p,
+		C:     c,
+		Len:   inputLen,
+		CR:    cr,
+		CC:    cc5m,
+		CC1h:  cc1h,
+		Img:   img,
+		ImgCR: imgCR,
+		ImgO:  imgO,
+		AI:    ai,
+		AO:    ao,
 	}
 }
 
@@ -181,6 +229,11 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	if relayInfo.BillingRequestInput != nil {
 		requestInput = *relayInfo.BillingRequestInput
 	}
+	if relayInfo.BillingImageCount != nil {
+		requestInput.ImageCount = relayInfo.BillingImageCount
+	} else if snap.EstimatedImageCount != nil {
+		requestInput.ImageCount = snap.EstimatedImageCount
+	}
 
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
@@ -197,4 +250,14 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	noteQuotaClamp(relayInfo, tr.Clamp)
 
 	return true, tr.ActualQuotaAfterGroup, &tr
+}
+
+// A failed evaluation retains the reservation and its estimated billing unit.
+// Successful evaluations always use the actual branch, including zero prices.
+func isFixedPriceSettlement(info *relaycommon.RelayInfo, result *billingexpr.TieredResult) bool {
+	if result != nil {
+		return result.BillingUnit == billingexpr.BillingUnitRequest
+	}
+	snap := info.TieredBillingSnapshot
+	return snap != nil && snap.BillingMode == "tiered_expr" && snap.EstimatedBillingUnit == billingexpr.BillingUnitRequest
 }

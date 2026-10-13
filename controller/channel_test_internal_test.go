@@ -23,6 +23,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGetChannelDefaultBaseURLsUsesBuiltInDefaults(t *testing.T) {
+	originalBaseURLs := constant.ChannelBaseURLs
+	constant.ChannelBaseURLs = append([]string(nil), originalBaseURLs...)
+	constant.ChannelBaseURLs[constant.ChannelTypeDeepSeek] = "https://deepseek.server.example"
+	t.Cleanup(func() {
+		constant.ChannelBaseURLs = originalBaseURLs
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/channel/default_base_urls", nil)
+	GetChannelDefaultBaseURLs(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool           `json:"success"`
+		Data    map[int]string `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+	assert.Equal(t, "https://deepseek.server.example", response.Data[constant.ChannelTypeDeepSeek])
+	assert.Equal(t, "https://api.openai.com", response.Data[constant.ChannelTypeOpenAI])
+	assert.NotContains(t, response.Data, constant.ChannelTypeAzure)
+	assert.NotContains(t, response.Data, constant.ChannelTypeNewAPI)
+	assert.NotContains(t, response.Data, constant.ChannelTypeTaskPlugin)
+}
+
 func TestValidateChannelProxy(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -464,5 +491,5 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
-	require.Contains(t, recorder.Body.String(), "已有通道测试任务正在运行或等待中")
+	require.Contains(t, recorder.Body.String(), "A channel test task is already running or queued")
 }

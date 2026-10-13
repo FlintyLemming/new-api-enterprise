@@ -24,6 +24,7 @@ import {
   splitBillingExprAndRequestRules,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
+import { translateServerText } from '@/lib/server-error-message'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
@@ -259,6 +260,7 @@ export function formatModelName(log: UsageLog): {
   name: string
   isMapped: boolean
   actualModel?: string
+  responseModel?: LogOtherData['response_model']
 } {
   const other = parseLogOther(log.other)
   const isMapped = !!(
@@ -271,6 +273,7 @@ export function formatModelName(log: UsageLog): {
     name: log.model_name,
     isMapped,
     actualModel: isMapped ? other.upstream_model_name : undefined,
+    responseModel: other?.response_model,
   }
 }
 
@@ -332,7 +335,12 @@ export function resolveMatchedTier(
 export interface TieredBillingSummary {
   tiers: ParsedTier[]
   tier: ParsedTier
-  priceEntries: Array<{ field: string; shortLabel: string; price: number }>
+  priceEntries: Array<{
+    field: string
+    shortLabel: string
+    price: number
+    unit?: 'request' | 'image'
+  }>
 }
 
 /**
@@ -346,6 +354,7 @@ export function hasAnyCacheTokens(
   if (!other) return false
   return (
     (other.cache_tokens || 0) > 0 ||
+    (other.image_cache_tokens || 0) > 0 ||
     (other.cache_creation_tokens || 0) > 0 ||
     (other.cache_creation_tokens_5m || 0) > 0 ||
     (other.cache_creation_tokens_1h || 0) > 0
@@ -362,7 +371,54 @@ export function getTieredBillingSummary(
     splitBillingExprAndRequestRules(exprStr).billingExpr
   )
   const tier = resolveMatchedTier(tiers, other.matched_tier)
+  if (
+    other.billing_unit === 'request' &&
+    typeof other.fixed_price === 'number' &&
+    Number.isFinite(other.fixed_price) &&
+    other.fixed_price >= 0
+  ) {
+    const fixedPrice = other.fixed_price
+    const actualTier = tiers.find(
+      (entry) =>
+        normalizeTierLabel(entry.label) ===
+          normalizeTierLabel(other.matched_tier) &&
+        entry.billingUnit === 'request' &&
+        entry.fixedPrice === fixedPrice
+    ) ?? {
+      label: other.matched_tier || '',
+      conditions: [],
+      billingUnit: 'request' as const,
+      fixedPrice,
+    }
+    return {
+      tiers,
+      tier: actualTier,
+      priceEntries: [
+        {
+          field: 'fixedPrice',
+          shortLabel:
+            other.image_count !== undefined ? 'Per image' : 'Per-call',
+          price: fixedPrice,
+          unit: other.image_count !== undefined ? 'image' : 'request',
+        },
+      ],
+    }
+  }
   if (!tier) return null
+  if (tier.billingUnit === 'request' && typeof tier.fixedPrice === 'number') {
+    return {
+      tiers,
+      tier,
+      priceEntries: [
+        {
+          field: 'fixedPrice',
+          shortLabel: tier.imageCount ? 'Per image' : 'Per-call',
+          price: tier.fixedPrice,
+          unit: tier.imageCount ? 'image' : 'request',
+        },
+      ],
+    }
+  }
 
   const cacheTokensPresent = hasAnyCacheTokens(other)
 
@@ -372,7 +428,7 @@ export function getTieredBillingSummary(
     if (v.group === 'cache' && !cacheTokensPresent) continue
     const raw = tier[v.field as keyof ParsedTier]
     const price = Number(raw)
-    if (Number.isFinite(price) && price > 0) {
+    if (Number.isFinite(price) && price >= 0) {
       priceEntries.push({
         field: v.field,
         shortLabel: v.shortLabel,
@@ -420,8 +476,10 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'token.delete_batch': 'API token batch deletion',
   'token.key_view': 'API token key access',
   'token.key_view_batch': 'API token batch key access',
-  'access_token.generate': 'Generated a system access token',
-  'access_token.revoke': 'Revoked the system access token',
+  'access_token.generate': 'Created an access token',
+  'access_token.revoke': 'Revoked an access token',
+  'access_token.rename': 'Renamed an access token',
+  'access_token.update': 'Changed access token permissions',
   'user.2fa_setup': 'Started two-factor authentication setup',
   'user.2fa_enable': 'Enabled two-factor authentication',
   'user.2fa_disable_self': 'Disabled two-factor authentication',
@@ -452,6 +510,13 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'user.oauth_unbind': 'Removed an OAuth binding for the user',
   // System settings
   'option.update': 'Updated system setting {{key}}',
+  'option.passkey_domains':
+    'Updated Passkey domains: removed {{domains}}; affected {{known}}; unknown {{unknown}}',
+  'option.passkey_domains_confirmed':
+    'Confirmed removal of Passkey domains: {{domains}}; affected {{known}}; unknown {{unknown}}',
+  'option.passkey_domains_blocked':
+    'Passkey domain change blocked: {{domains}}; affected {{known}}; unknown {{unknown}}',
+  'option.passkey_domains_failed': 'Passkey domain update failed',
   'option.payment_compliance': 'Confirmed payment compliance',
   'option.reset_ratio': 'Reset model ratios',
   'option.clear_affinity_cache': 'Cleared channel affinity cache',
@@ -512,11 +577,41 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'subscription.plan_create': 'Created a subscription plan',
   'subscription.plan_update': 'Updated a subscription plan',
   'subscription.bind': 'Bound a subscription',
+  'subscription.user_quota_reset':
+    'Administrator reset the quota of subscription plan {{plan_title}} (ID: {{plan_id}})',
   // Logs
   'log.clear': 'Cleared historical logs',
   'log.cleanup_start': 'Log cleanup task started.',
   // Generic middleware fallback
   generic: '{{method}} {{route}}',
+}
+
+/**
+ * Render a log's `other.content_parts`, which the backend stores as English
+ * source keys plus params so the text follows the viewer's language. Returns
+ * null for logs written before structured content, letting callers fall back
+ * to the raw `content` field.
+ */
+export function renderLogContent(
+  other: LogOtherData | null | undefined,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string | null {
+  const parts = other?.content_parts
+  if (!Array.isArray(parts) || parts.length === 0) return null
+  return parts.map((part) => t(part.key, part.params)).join(', ')
+}
+
+/**
+ * The token name to show for a log. A log written without a token, such as a
+ * channel test, carries a name the gateway stored as an English source key.
+ */
+export function logTokenName(
+  log: Pick<UsageLog, 'token_id' | 'token_name'>,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  return log.token_id === 0
+    ? translateServerText(t, log.token_name)
+    : log.token_name
 }
 
 /**

@@ -3,20 +3,25 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/service"
+	passkeysvc "github.com/QuantumNous/new-api/service/passkey"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/protocol"
 )
 
 func GetVerificationMethods(c *gin.Context) {
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := middleware.GetStepUpIdentity(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "当前认证方式不支持安全验证"})
+		writeAccountStatusError(c, http.StatusUnauthorized, "The current sign-in method does not support security verification")
 		return
 	}
 	requirements, err := service.GetVerificationRequirements(identity, c.Query("scope"))
@@ -34,6 +39,10 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 	var code, message string
 	var protocolError *protocol.Error
 	switch {
+	case errors.Is(err, passkeysvc.ErrRPIDUnavailable):
+		code, message = "PASSKEY_RP_ID_UNAVAILABLE", "This Passkey domain is not available on this website. Use its original website or another verification method."
+	case errors.Is(err, system_setting.ErrPasskeyRPIDInvalid):
+		code, message = "PASSKEY_RP_ID_INVALID", "Invalid Passkey domain. Enter a domain without a scheme, port, path or wildcard."
 	case errors.Is(err, service.ErrAccountEmailInvalid), errors.Is(err, service.ErrAccountEmailRestricted):
 		code, message = "EMAIL_ADDRESS_REJECTED", err.Error()
 	case errors.Is(err, model.ErrEmailAlreadyTaken):
@@ -112,18 +121,48 @@ func writeSecurityOperationError(c *gin.Context, err error) {
 		return
 	}
 	c.Set("security_error_code", code)
-	c.JSON(status, gin.H{"success": false, "code": code, "message": message})
+	if strings.Contains(c.Request.URL.Path, "/passkey/") {
+		reason := "verification_failed"
+		if errors.As(err, &protocolError) && slices.Contains([]string{"invalid_request", "challenge_mismatch", "parse_error", "auth_data", "verification_error", "invalid_signature", "invalid_key_type", "unsupported_key_algorithm"}, protocolError.Type) {
+			reason = protocolError.Type
+		}
+		// Protocol details can contain challenges and client-controlled data.
+		// Only fixed categories and the server-selected public RP ID are logged.
+		logger.LogWarn(c.Request.Context(), common.LogText("passkey verification rejected: code=%s reason=%s rp_id=%q", code, reason, c.GetString("passkey_rp_id")))
+	}
+	// Every message above is fixed English text, so it is also the key the web
+	// console translates.
+	common.ApiErrorStatus(c, status, common.NewMessage(message), gin.H{"code": code})
+}
+
+// writeAccountStatusError responds with a web console message under a non-200
+// status.
+func writeAccountStatusError(c *gin.Context, status int, key string) {
+	common.ApiErrorStatus(c, status, common.NewMessage(key))
+}
+
+// requireAdminUserProof consumes the step-up proof for an administrative user
+// operation after the caller has already authorized the operator against the
+// managed user. context is one of the service.AdminUser*Context structs.
+func requireAdminUserProof(c *gin.Context, scope string, context any) *model.AuthFlowAuthorization {
+	payload, err := common.Marshal(context)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "code": "AUTH_INTERNAL_ERROR", "message": "Please try again later."})
+		return nil
+	}
+	return middleware.RequireSecurityProof(c, service.VerificationOperation{Scope: scope, Context: payload})
 }
 
 func UniversalVerify(c *gin.Context) {
-	identity, ok := middleware.GetSessionAuthIdentity(c)
+	identity, ok := middleware.GetStepUpIdentity(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "当前认证方式不支持安全验证"})
+		writeAccountStatusError(c, http.StatusUnauthorized, "The current sign-in method does not support security verification")
 		return
 	}
 	var request service.VerificationInput
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
-		common.ApiErrorMsg(c, "参数错误")
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	proof, err := service.VerifySecurityInput(identity, request)

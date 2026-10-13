@@ -106,6 +106,7 @@ func TestExchangeKeyBillingSessionWalletOnlySkipsTokenRows(t *testing.T) {
 	user := setupExchangeKeyQuotaTest(t)
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
 	info := &relaycommon.RelayInfo{
 		UserId: user.Id, TokenId: 0, TokenKey: "", TokenUnlimited: true,
 		IsExchangeKey: true, ForcePreConsume: true,

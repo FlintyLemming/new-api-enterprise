@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { createServerError } from '@/lib/server-error-message'
 
 import { getMissingModels } from '../../api'
 import { DEFAULT_PAGE_SIZE } from '../../constants'
@@ -62,7 +63,7 @@ export function MissingModelsDialog({
     queryFn: async () => {
       const response = await getMissingModels()
       if (!response.success) {
-        throw new Error(response.message || t('Operation failed'))
+        throw createServerError(response, t('Operation failed'))
       }
       return response
     },
@@ -126,7 +127,7 @@ export function MissingModelsDialog({
       description={t(
         'Models that are being used but not configured in the system'
       )}
-      contentClassName='flex max-h-[85vh] max-w-2xl flex-col gap-3 p-4'
+      contentClassName='flex max-h-[min(85dvh,var(--dialog-available-height))] max-w-2xl flex-col gap-3 p-4'
       headerClassName='flex-shrink-0 text-start'
       contentHeight='min(74vh, 760px)'
       bodyClassName='space-y-4'

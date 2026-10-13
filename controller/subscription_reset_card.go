@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-gonic/gin"
@@ -24,19 +23,19 @@ type adminGrantSubscriptionResetCardsRequest struct {
 func AdminGrantSubscriptionResetCards(c *gin.Context) {
 	var req adminGrantSubscriptionResetCardsRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.UserId <= 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	if nameLen := utf8.RuneCountInString(req.Name); nameLen < 1 || nameLen > 50 {
-		common.ApiErrorI18n(c, i18n.MsgResetCardNameLength)
+		common.ApiErrorT(c, "Reset card name length must be between 1-50")
 		return
 	}
 	if req.Count < 1 || req.Count > 100 {
-		common.ApiErrorI18n(c, i18n.MsgResetCardCountRange)
+		common.ApiErrorT(c, "Grant count must be between 1-100")
 		return
 	}
 	if req.ExpiredTime != 0 && req.ExpiredTime < common.GetTimestamp() {
-		common.ApiErrorI18n(c, i18n.MsgResetCardExpireTimeInvalid)
+		common.ApiErrorT(c, "Expiration time cannot be earlier than current time")
 		return
 	}
 	if err := model.GrantSubscriptionResetCards(req.UserId, req.Name, req.Count, req.ExpiredTime); err != nil {
@@ -81,16 +80,16 @@ func AdminDisableSubscriptionResetCards(c *gin.Context) {
 		Ids []int `json:"ids" binding:"required,min=1,max=1000,dive,gt=0"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	count, err := model.DisableSubscriptionResetCards(req.Ids)
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrResetCardNotFound):
-			common.ApiErrorI18n(c, i18n.MsgResetCardNotFound)
+			common.ApiErrorT(c, "Subscription reset card not found")
 		case errors.Is(err, model.ErrResetCardNotUnused):
-			common.ApiErrorI18n(c, i18n.MsgResetCardNotUnused)
+			common.ApiErrorT(c, "Only unused reset cards can be disabled")
 		default:
 			common.ApiError(c, err)
 		}
@@ -106,7 +105,7 @@ func AdminDisableSubscriptionResetCards(c *gin.Context) {
 func AdminDeleteSubscriptionResetCard(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	if id <= 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidId)
+		common.ApiErrorT(c, "Invalid ID")
 		return
 	}
 	if err := model.DeleteSubscriptionResetCardById(id); err != nil {
@@ -139,18 +138,18 @@ func UseSelfSubscriptionResetCard(c *gin.Context) {
 	userId := c.GetInt("id")
 	var req useSubscriptionResetCardRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.SubscriptionId <= 0 {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
 	card, err := model.UseSubscriptionResetCard(userId, req.SubscriptionId)
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrNoAvailableResetCard):
-			common.ApiErrorI18n(c, i18n.MsgResetCardNoAvailable)
+			common.ApiErrorT(c, "No available subscription reset card")
 		case errors.Is(err, model.ErrResetCardAlreadyUsed):
-			common.ApiErrorI18n(c, i18n.MsgResetCardAlreadyUsed)
+			common.ApiErrorT(c, "This reset card has already been used")
 		case errors.Is(err, model.ErrResetCardInvalidSubscription):
-			common.ApiErrorI18n(c, i18n.MsgResetCardInvalidSubscription)
+			common.ApiErrorT(c, "Subscription does not exist, does not belong to you, or is no longer active")
 		default:
 			common.ApiError(c, err)
 		}

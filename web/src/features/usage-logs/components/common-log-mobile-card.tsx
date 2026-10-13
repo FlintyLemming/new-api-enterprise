@@ -34,6 +34,7 @@ import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import type { UsageLog } from '../data/schema'
 import {
   formatModelName,
+  logTokenName,
   parseLogOther,
   resolveDurationSeconds,
 } from '../lib/format'
@@ -42,7 +43,7 @@ import {
   isDisplayableLogType,
   isTimingLogType,
 } from '../lib/utils'
-import { ModelBadge } from './model-badge'
+import { ModelBadge, ResponseModelDetails } from './model-badge'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
 import { useUsageLogsContext } from './usage-logs-provider'
 
@@ -111,7 +112,7 @@ export function CommonLogMobileCard<TData>(props: {
     },
     token: {
       label: t('Token'),
-      value: log.token_name,
+      value: logTokenName(log, t),
       visible: displayable && props.cells.has('token_name') && !!log.token_name,
       sensitive: true,
     },
@@ -154,6 +155,7 @@ export function CommonLogMobileCard<TData>(props: {
             <ModelBadge
               modelName={model.name}
               actualModel={model.actualModel}
+              responseModel={model.responseModel}
               wrapText
               onInspect={() => setSelectedField('model')}
             />
@@ -198,6 +200,7 @@ export function CommonLogMobileCard<TData>(props: {
                   className='min-h-5 max-w-full min-w-0 justify-end'
                   isStream={log.is_stream}
                   isTask={other?.is_task === true}
+                  isSyncTask={other?.task_sync === true}
                   tokensPerSecond={
                     durationSec > 0 && log.completion_tokens > 0
                       ? log.completion_tokens / durationSec
@@ -355,15 +358,20 @@ export function CommonLogMobileCard<TData>(props: {
             <p className='bg-muted rounded-lg p-4 text-base [overflow-wrap:anywhere] whitespace-pre-wrap'>
               {activeField.value}
             </p>
-            {selectedField === 'model' && model.actualModel && (
-              <div className='space-y-2'>
-                <p className='text-muted-foreground'>{t('Actual Model')}</p>
-                <p className='text-base [overflow-wrap:anywhere]'>
-                  {model.actualModel}
-                </p>
-                <CopyButton value={model.actualModel} />
-              </div>
+            {selectedField === 'model' && model.responseModel && (
+              <ResponseModelDetails observation={model.responseModel} />
             )}
+            {selectedField === 'model' &&
+              !model.responseModel &&
+              model.actualModel && (
+                <div className='space-y-2'>
+                  <p className='text-muted-foreground'>{t('Actual Model')}</p>
+                  <p className='text-base [overflow-wrap:anywhere]'>
+                    {model.actualModel}
+                  </p>
+                  <CopyButton value={model.actualModel} />
+                </div>
+              )}
             {selectedField === 'channel' && channelCell && (
               <div>
                 {flexRender(

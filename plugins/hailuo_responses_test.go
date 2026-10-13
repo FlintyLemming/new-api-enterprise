@@ -1,7 +1,10 @@
 package plugins_test
 
 import (
+	"maps"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,6 +14,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	taskplugin "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,33 +47,120 @@ func TestHailuoResponsesProtocol(t *testing.T) {
 	})
 }
 
-func TestHailuoArtifactContentProxy(t *testing.T) {
-	source, err := builtinplugins.Source("hailuo")
-	require.NoError(t, err)
-	plugin, err := jsplugin.NewRegistry().RegisterFactory(source, jsplugin.Options{Key: "hailuo"})
-	require.NoError(t, err)
-	adaptor := taskplugin.New(plugin)
-	adaptor.Init(&relaycommon.RelayInfo{
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ApiKey:         "test-ak",
-			ChannelBaseUrl: "https://api.minimax.example",
+// Every model selects only the dimensions it can actually bill, while
+// submission still reports the union so prices saved against the previous
+// schema keep evaluating.
+func TestHailuoUsageProfilesPerModel(t *testing.T) {
+	plugin := loadHailuoPlugin(t)
+	families := []struct {
+		models      []string
+		fields      []string
+		resolutions []string
+	}{
+		{
+			models:      []string{"MiniMax-H3"},
+			fields:      []string{"input_images", "input_video_seconds", "resolution", "seconds"},
+			resolutions: []string{"768P", "2K"},
 		},
+		{
+			models:      []string{"MiniMax-Hailuo-2.3", "MiniMax-Hailuo-2.3-Fast"},
+			fields:      []string{"resolution", "seconds"},
+			resolutions: []string{"768P", "1080P"},
+		},
+		{
+			models:      []string{"MiniMax-Hailuo-02"},
+			fields:      []string{"resolution", "seconds"},
+			resolutions: []string{"512P", "768P", "1080P"},
+		},
+		{
+			models: []string{"T2V-01-Director", "T2V-01", "I2V-01-Director", "I2V-01-live", "I2V-01", "S2V-01"},
+			fields: []string{"seconds"},
+		},
+	}
+	profiled := make([]string, 0, len(plugin.Meta.Models))
+	for _, family := range families {
+		for _, name := range family.models {
+			profiled = append(profiled, name)
+			t.Run(name, func(t *testing.T) {
+				schema, examples := plugin.Meta.UsageForModel(name)
+				assert.Equal(t, family.fields, slices.Sorted(maps.Keys(schema)))
+				assert.Equal(t, family.resolutions, schema["resolution"].Enum)
+				assert.NotEmpty(t, examples)
+			})
+		}
+	}
+	assert.ElementsMatch(t, plugin.Meta.Models, profiled, "every declared model must select a usage profile")
+
+	t.Run("submission keeps facts outside the selected profile billable", func(t *testing.T) {
+		info := &relaycommon.RelayInfo{
+			ChannelMeta:     &relaycommon.ChannelMeta{ApiKey: "test-ak", ChannelBaseUrl: "https://api.minimax.example", UpstreamModelName: "MiniMax-Hailuo-2.3"},
+			OriginModelName: "MiniMax-Hailuo-2.3",
+			TaskRelayInfo:   &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+		}
+		adaptor := taskplugin.New(plugin)
+		adaptor.Init(info)
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+		c.Set("task_request", map[string]any{"model": "MiniMax-Hailuo-2.3", "prompt": "p", "duration": 10, "resolution": "768P"})
+		require.Nil(t, adaptor.ValidateRequestAndSetAction(c, info))
+
+		facts, err := adaptor.ExtractUsageFactsValidated(c, info)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"seconds": float64(10), "resolution": "768P", "input_images": float64(0), "input_video_seconds": float64(0),
+		}, facts)
 	})
-	data, err := common.Marshal(map[string]any{"file_id": "file/with space"})
-	require.NoError(t, err)
-	task := &model.Task{TaskID: "task-public", Status: model.TaskStatusSuccess, Data: data}
+}
 
-	artifacts, err := adaptor.ListArtifacts(task)
-	require.NoError(t, err)
-	assert.Equal(t, []channel.TaskArtifact{{Key: "video", Type: "video", MimeType: "video/mp4"}}, artifacts)
+// MiniMax serves v1 videos only through the signed download_url of
+// /v1/files/retrieve; that link is signed for GET, so HEAD clients get GET too.
+func TestHailuoArtifactContentProxy(t *testing.T) {
+	service.InitHttpClient()
+	const signedURL = "https://bucket.oss-cn-wulanchabu.aliyuncs.com/video.mp4?Expires=1&OSSAccessKeyId=key&Signature=sig"
+	retrieveBodies := map[string]string{
+		"file/with space": `{"file":{"file_id":1,"download_url":"` + signedURL + `"},"base_resp":{"status_code":0,"status_msg":"success"}}`,
+		"login":           `{"base_resp":{"status_code":1004,"status_msg":"login fail"}}`,
+		"missing":         `{"file":{"file_id":3},"base_resp":{"status_code":0,"status_msg":"success"}}`,
+		"html":            `<html>gateway error</html>`,
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/v1/files/retrieve", r.URL.Path)
+		assert.Equal(t, "Bearer test-ak", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(retrieveBodies[r.URL.Query().Get("file_id")]))
+	}))
+	defer upstream.Close()
+	adaptor := taskplugin.New(loadHailuoPlugin(t))
+	adaptor.Init(&relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{ApiKey: "test-ak", ChannelBaseUrl: upstream.URL},
+	})
 
-	descriptor, err := adaptor.BuildContentRequest(task, "video", channel.TaskArtifactClientRequest{Method: http.MethodHead})
-	require.NoError(t, err)
-	require.NotNil(t, descriptor)
-	assert.Equal(t, "https://api.minimax.example/v1/files/download?file_id=file%2Fwith%20space", descriptor.URL)
-	assert.Equal(t, http.MethodHead, descriptor.Method)
-	assert.Equal(t, map[string]string{"Accept": "video/*", "Authorization": "Bearer test-ak"}, descriptor.Headers)
-	assert.False(t, descriptor.Credentialless)
+	for _, tc := range []struct {
+		fileID  string
+		wantErr string
+	}{
+		{fileID: "file/with space"},
+		{fileID: "login", wantErr: "MiniMax file retrieve failed: login fail"},
+		{fileID: "missing", wantErr: "artifact_not_found"},
+		{fileID: "html", wantErr: "MiniMax file retrieve returned an unexpected response: HTTP 200"},
+	} {
+		t.Run(tc.fileID, func(t *testing.T) {
+			data, err := common.Marshal(map[string]any{"file_id": tc.fileID})
+			require.NoError(t, err)
+			task := &model.Task{TaskID: "task-public", Status: model.TaskStatusSuccess, Data: data}
+			artifacts, err := adaptor.ListArtifacts(task)
+			require.NoError(t, err)
+			assert.Equal(t, []channel.TaskArtifact{{Key: "video", Type: "video", MimeType: "video/mp4"}}, artifacts)
+
+			descriptor, err := adaptor.BuildContentRequest(t.Context(), task, "video", channel.TaskArtifactClientRequest{Method: http.MethodHead})
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, &channel.TaskContentRequest{URL: signedURL, Method: http.MethodGet, Credentialless: true}, descriptor)
+		})
+	}
 }
 
 func loadHailuoPlugin(t *testing.T) *jsplugin.LoadedPlugin {
@@ -485,7 +577,7 @@ func TestHailuoH3ArtifactContentProxy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []channel.TaskArtifact{{Key: "video", Type: "video", MimeType: "video/mp4"}}, artifacts)
 
-	descriptor, err := adaptor.BuildContentRequest(task, "video", channel.TaskArtifactClientRequest{Method: http.MethodGet})
+	descriptor, err := adaptor.BuildContentRequest(t.Context(), task, "video", channel.TaskArtifactClientRequest{Method: http.MethodGet})
 	require.NoError(t, err)
 	require.NotNil(t, descriptor)
 	assert.Equal(t, "https://cdn.example/h3.mp4", descriptor.URL)

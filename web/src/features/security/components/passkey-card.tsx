@@ -48,7 +48,9 @@ import {
   SecureVerificationDialog,
   useSecureVerification,
 } from '@/features/auth/secure-verification'
-import dayjs from '@/lib/dayjs'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatTimestampRelative } from '@/lib/format'
+import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
 
 interface PasskeyCardProps {
@@ -56,7 +58,8 @@ interface PasskeyCardProps {
 }
 
 export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const {
     status,
@@ -85,7 +88,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       toast.success(t('Passkey registered successfully'))
     } catch (error) {
       const failure = AuthOperationError.from(error)
-      if (failure.code !== 'AUTH_CANCELLED') toast.error(t(failure.message))
+      if (failure.code !== 'AUTH_CANCELLED') handleServerError(failure)
     }
   }, [register, registering, removing, t, verification])
 
@@ -101,7 +104,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
       toast.success(t('Passkey removed successfully'))
     } catch (error) {
       const failure = AuthOperationError.from(error)
-      if (failure.code !== 'AUTH_CANCELLED') toast.error(t(failure.message))
+      if (failure.code !== 'AUTH_CANCELLED') handleServerError(failure)
     }
   }, [registering, remove, removing, t, verification])
 
@@ -135,7 +138,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
   const formattedLastUsed =
     lastUsed && !Number.isNaN(Date.parse(lastUsed))
-      ? dayjs(lastUsed).fromNow()
+      ? formatTimestampRelative(Date.parse(lastUsed), 'milliseconds', locale)
       : t('Not used yet')
 
   const showUnsupportedNotice = !supported && !enabled

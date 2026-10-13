@@ -24,7 +24,7 @@ import type {
   SortingState,
   Row,
 } from '@tanstack/react-table'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, RefreshCw } from 'lucide-react'
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -44,6 +44,8 @@ import {
 } from '@/components/ui/tooltip'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { requireServerSuccess } from '@/lib/server-error-message'
+import { cn } from '@/lib/utils'
 
 import { getChannels, searchChannels, getGroups } from '../api'
 import {
@@ -205,7 +207,7 @@ export function ChannelsTable() {
   // Fetch groups for filter
   const { data: groupsData } = useQuery({
     queryKey: ['groups'],
-    queryFn: getGroups,
+    queryFn: async () => requireServerSuccess(await getGroups()),
   })
 
   const groupOptions = useMemo(
@@ -219,7 +221,7 @@ export function ChannelsTable() {
 
   // Fetch channels data
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: channelsQueryKeys.list({
       keyword: globalFilter,
       model: modelFilter,
@@ -243,47 +245,51 @@ export function ChannelsTable() {
     }),
     queryFn: async () => {
       if (shouldSearch) {
-        return searchChannels({
-          keyword: globalFilter,
-          model: modelFilter,
-          group:
-            groupFilter.length > 0 && !groupFilter.includes('all')
-              ? groupFilter[0]
-              : undefined,
-          status:
-            statusFilter.length > 0 && !statusFilter.includes('all')
-              ? statusFilter[0]
-              : undefined,
-          type:
-            typeFilter.length > 0 && !typeFilter.includes('all')
-              ? Number(typeFilter[0])
-              : undefined,
-          tag_mode: enableTagMode,
-          id_sort: idSort,
-          ...sortParams,
-          p: pagination.pageIndex + 1,
-          page_size: pagination.pageSize,
-        })
+        return requireServerSuccess(
+          await searchChannels({
+            keyword: globalFilter,
+            model: modelFilter,
+            group:
+              groupFilter.length > 0 && !groupFilter.includes('all')
+                ? groupFilter[0]
+                : undefined,
+            status:
+              statusFilter.length > 0 && !statusFilter.includes('all')
+                ? statusFilter[0]
+                : undefined,
+            type:
+              typeFilter.length > 0 && !typeFilter.includes('all')
+                ? Number(typeFilter[0])
+                : undefined,
+            tag_mode: enableTagMode,
+            id_sort: idSort,
+            ...sortParams,
+            p: pagination.pageIndex + 1,
+            page_size: pagination.pageSize,
+          })
+        )
       } else {
-        return getChannels({
-          group:
-            groupFilter.length > 0 && !groupFilter.includes('all')
-              ? groupFilter[0]
-              : undefined,
-          status:
-            statusFilter.length > 0 && !statusFilter.includes('all')
-              ? statusFilter[0]
-              : undefined,
-          type:
-            typeFilter.length > 0 && !typeFilter.includes('all')
-              ? Number(typeFilter[0])
-              : undefined,
-          tag_mode: enableTagMode,
-          id_sort: idSort,
-          ...sortParams,
-          p: pagination.pageIndex + 1,
-          page_size: pagination.pageSize,
-        })
+        return requireServerSuccess(
+          await getChannels({
+            group:
+              groupFilter.length > 0 && !groupFilter.includes('all')
+                ? groupFilter[0]
+                : undefined,
+            status:
+              statusFilter.length > 0 && !statusFilter.includes('all')
+                ? statusFilter[0]
+                : undefined,
+            type:
+              typeFilter.length > 0 && !typeFilter.includes('all')
+                ? Number(typeFilter[0])
+                : undefined,
+            tag_mode: enableTagMode,
+            id_sort: idSort,
+            ...sortParams,
+            p: pagination.pageIndex + 1,
+            page_size: pagination.pageSize,
+          })
+        )
       }
     },
     placeholderData: (previousData) => previousData,
@@ -424,6 +430,7 @@ export function ChannelsTable() {
       cardGridClassName='grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3'
       applyHeaderSize
       toolbarProps={{
+        collapsibleOnMobile: true,
         searchPlaceholder: t('Filter by name, ID, or key...'),
         searchDebounceMs: 500,
         onReset: () => {
@@ -460,24 +467,43 @@ export function ChannelsTable() {
           },
         ],
         preActions: (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  onClick={() => setSensitiveVisible(!sensitiveVisible)}
-                  aria-label={sensitiveVisible ? t('Hide') : t('Show')}
-                  className='text-muted-foreground hover:text-foreground size-8'
-                />
-              }
-            >
-              {sensitiveVisible ? <Eye /> : <EyeOff />}
-            </TooltipTrigger>
-            <TooltipContent>
-              {sensitiveVisible ? t('Hide') : t('Show')}
-            </TooltipContent>
-          </Tooltip>
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    onClick={() => setSensitiveVisible(!sensitiveVisible)}
+                    aria-label={sensitiveVisible ? t('Hide') : t('Show')}
+                    className='text-muted-foreground hover:text-foreground size-8'
+                  />
+                }
+              >
+                {sensitiveVisible ? <Eye /> : <EyeOff />}
+              </TooltipTrigger>
+              <TooltipContent>
+                {sensitiveVisible ? t('Hide') : t('Show')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    onClick={() => void refetch()}
+                    aria-label={t('Refresh')}
+                    aria-busy={isFetching}
+                    className='text-muted-foreground hover:text-foreground size-8'
+                  />
+                }
+              >
+                <RefreshCw className={cn(isFetching && 'animate-spin')} />
+              </TooltipTrigger>
+              <TooltipContent>{t('Refresh')}</TooltipContent>
+            </Tooltip>
+          </>
         ),
       }}
       getRowClassName={(row, { isMobile }) => {

@@ -16,13 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 import type { AuthBundle } from '@/stores/auth-store'
 
+import { OAUTH_POPUP_CALLBACK_MESSAGE } from '../../constants'
 import { SecureVerificationDialog } from '../components/secure-verification-dialog'
 import { useSecureVerification } from '../hooks/use-secure-verification'
 import type {
@@ -38,13 +41,35 @@ const passwordRequirements: VerificationRequirements = {
   password_encryption_enabled: false,
 }
 
+const linkedAccountRequirements: VerificationRequirements = {
+  scope: '2fa.setup',
+  methods: [{ method: 'oauth', available: true }],
+  oauth_providers: [{ slug: 'linuxdo', name: 'Linux DO' }],
+  password_encryption_enabled: false,
+}
+
+function stubOAuthPopup() {
+  const popup = {
+    closed: false,
+    location: { replace: vi.fn() },
+    sessionStorage: window.sessionStorage,
+    close: vi.fn(),
+    postMessage: vi.fn(),
+  }
+  vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+  return popup
+}
+
 function Harness(props: {
   onResult: (proof: SecurityProof | null) => void
   operation?: RequestVerificationOptions
 }) {
   const verification = useSecureVerification()
+  const [client] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  )
   return (
-    <>
+    <QueryClientProvider client={client}>
       <button
         type='button'
         onClick={async () =>
@@ -60,7 +85,7 @@ function Harness(props: {
         Protected action
       </button>
       <SecureVerificationDialog {...verification.dialogProps} />
-    </>
+    </QueryClientProvider>
   )
 }
 
@@ -75,14 +100,18 @@ function pendingResponse<T>() {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  window.sessionStorage.clear()
 })
 
 function LoginHarness(props: {
   onResult: (bundle: AuthBundle | null) => void
 }) {
   const verification = useSecureVerification()
+  const [client] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  )
   return (
-    <>
+    <QueryClientProvider client={client}>
       <button
         type='button'
         onClick={async () =>
@@ -102,13 +131,15 @@ function LoginHarness(props: {
         Continue sign-in
       </button>
       <SecureVerificationDialog {...verification.dialogProps} />
-    </>
+    </QueryClientProvider>
   )
 }
 
 it('lets a pending login switch from Passkey to 2FA without using authenticated verification endpoints', async () => {
+  const get = vi
+    .spyOn(api, 'get')
+    .mockResolvedValue({ data: { success: true, data: {} } })
   vi.stubGlobal('PublicKeyCredential', class {})
-  const get = vi.spyOn(api, 'get')
   const bundle: AuthBundle = {
     access_token: 'verified-login',
     token_type: 'Bearer',
@@ -152,7 +183,7 @@ it('lets a pending login switch from Passkey to 2FA without using authenticated 
       signal: expect.any(AbortSignal),
     })
   )
-  expect(get).not.toHaveBeenCalled()
+  expect(get.mock.calls.every(([url]) => url === '/api/status')).toBe(true)
 })
 
 it.each(['success', 'cancel', 'retry'] as const)(
@@ -417,4 +448,124 @@ it('keeps an enrolled Passkey unavailable when this browser cannot use it', asyn
   ).toBeVisible()
   expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled()
   expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+})
+
+it('starts linked-account verification from the provider button without a separate Verify button', async () => {
+  const popup = stubOAuthPopup()
+  const proof: SecurityProof = {
+    proof_token: 'oauth-proof',
+    method: 'oauth',
+    scope: '2fa.setup',
+    expires_at: Math.floor(Date.now() / 1000) + 300,
+  }
+  vi.spyOn(api, 'get').mockImplementation((url) => {
+    if (url === '/api/verify/methods') {
+      return Promise.resolve({
+        data: { success: true, data: linkedAccountRequirements },
+      })
+    }
+    if (url === '/api/oauth/linuxdo') {
+      return Promise.resolve({ data: { success: true, data: proof } })
+    }
+    return Promise.resolve({ data: { success: true, data: {} } })
+  })
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        flow_token: 'verification-state',
+        authorization_url: 'https://connect.linux.do/oauth2/authorize?s=1',
+      },
+    },
+  })
+  const result = vi.fn()
+  const user = userEvent.setup()
+  render(<Harness operation={{ scope: '2fa.setup' }} onResult={result} />)
+  await user.click(screen.getByText('Protected action'))
+  const providerButton = await screen.findByRole('button', {
+    name: 'Continue with Linux DO',
+  })
+  expect(
+    screen.queryByRole('button', { name: 'Verify' })
+  ).not.toBeInTheDocument()
+  expect(window.open).not.toHaveBeenCalled()
+  await user.click(providerButton)
+  expect(window.open).toHaveBeenCalledTimes(1)
+  expect(providerButton).toBeDisabled()
+  await waitFor(() =>
+    expect(popup.location.replace).toHaveBeenCalledWith(
+      'https://connect.linux.do/oauth2/authorize?s=1'
+    )
+  )
+  expect(post).toHaveBeenCalledExactlyOnceWith(
+    '/api/oauth/state',
+    expect.objectContaining({
+      provider: 'linuxdo',
+      intent: 'verify',
+      scope: '2fa.setup',
+    }),
+    expect.anything()
+  )
+  const event = new MessageEvent('message', {
+    origin: window.location.origin,
+    data: {
+      type: OAUTH_POPUP_CALLBACK_MESSAGE,
+      intent: 'verify',
+      provider: 'linuxdo',
+      state: 'verification-state',
+      code: 'code',
+    },
+  })
+  Object.defineProperty(event, 'source', { value: popup })
+  window.dispatchEvent(event)
+  await waitFor(() => expect(result).toHaveBeenCalledExactlyOnceWith(proof))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('verifies with the clicked provider when several linked accounts are available', async () => {
+  const popup = stubOAuthPopup()
+  vi.spyOn(api, 'get').mockImplementation((url) =>
+    url === '/api/verify/methods'
+      ? Promise.resolve({
+          data: {
+            success: true,
+            data: {
+              ...linkedAccountRequirements,
+              oauth_providers: [
+                { slug: 'linuxdo', name: 'Linux DO' },
+                { slug: 'github', name: 'GitHub' },
+              ],
+            },
+          },
+        })
+      : Promise.resolve({ data: { success: true, data: {} } })
+  )
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        flow_token: 'github-state',
+        authorization_url: 'https://github.com/login/oauth/authorize?s=1',
+      },
+    },
+  })
+  const user = userEvent.setup()
+  render(<Harness operation={{ scope: '2fa.setup' }} onResult={vi.fn()} />)
+  await user.click(screen.getByText('Protected action'))
+  await user.click(
+    await screen.findByRole('button', { name: 'Continue with GitHub' })
+  )
+  await waitFor(() =>
+    expect(popup.location.replace).toHaveBeenCalledWith(
+      'https://github.com/login/oauth/authorize?s=1'
+    )
+  )
+  expect(post).toHaveBeenCalledExactlyOnceWith(
+    '/api/oauth/state',
+    expect.objectContaining({ provider: 'github' }),
+    expect.anything()
+  )
+  expect(
+    screen.getByRole('button', { name: 'Continue with Linux DO' })
+  ).toBeDisabled()
 })

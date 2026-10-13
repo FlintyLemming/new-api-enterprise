@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/service/authz"
@@ -99,10 +101,17 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/models", controller.GetUserModels)
 				selfRoute.PUT("/self", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.UpdateSelf)
 				selfRoute.DELETE("/self", middleware.DisableCache(), controller.DeleteSelf)
-				selfRoute.GET("/token", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), middleware.DisableCache(), controller.GenerateAccessToken)
-				selfRoute.GET("/token/status", middleware.DisableCache(), controller.GetAccessTokenStatus)
-				selfRoute.POST("/token", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), middleware.DisableCache(), controller.GenerateAccessToken)
-				selfRoute.DELETE("/token", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), middleware.DisableCache(), controller.RevokeAccessToken)
+				accessTokenRoute := selfRoute.Group("/access_tokens")
+				accessTokenRoute.Use(middleware.DisableCache())
+				{
+					accessTokenRoute.GET("", controller.ListAccessTokens)
+					accessTokenRoute.GET("/catalog", controller.GetAccessTokenCatalog)
+					accessTokenRoute.GET("/scopes", controller.GetAccessTokenScopes)
+					accessTokenRoute.POST("", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), controller.CreateAccessToken)
+					accessTokenRoute.PATCH("/:id", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), controller.UpdateAccessToken)
+					accessTokenRoute.DELETE("/:id", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), controller.DeleteAccessToken)
+					accessTokenRoute.DELETE("/legacy", middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("access-token"), controller.RevokeLegacyAccessToken)
+				}
 				selfRoute.GET("/passkey", controller.PasskeyStatus)
 				selfRoute.POST("/passkey/register/begin", middleware.UserCriticalRateLimit("security-verification"), middleware.DisableCache(), controller.PasskeyRegisterBegin)
 				selfRoute.POST("/passkey/register/finish", middleware.UserCriticalRateLimit("security-verification"), middleware.DisableCache(), controller.PasskeyRegisterFinish)
@@ -214,13 +223,18 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/request_policy", controller.GetRequestPolicy)
+			optionRoute.PATCH("/request_policy", controller.UpdateRequestPolicy)
 			optionRoute.PUT("/", controller.UpdateOption)
+			optionRoute.PUT("/passkey/domains", controller.UpdatePasskeyDomains)
 			optionRoute.GET("/langfuse", controller.GetLangfuseSetting)
 			optionRoute.PUT("/langfuse", controller.UpdateLangfuseSetting)
 			optionRoute.GET("/exchange-key", controller.GetExchangeKeySetting)
 			optionRoute.PUT("/exchange-key", controller.UpdateExchangeKeySetting)
 			optionRoute.GET("/model_pricing", controller.GetModelPricingConfig)
 			optionRoute.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
+			optionRoute.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
+			optionRoute.POST("/model_pricing/preview", controller.PreviewModelPricing)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -276,7 +290,7 @@ func SetApiRouter(router *gin.Engine) {
 			taskPluginRoute.POST("/:key/dryrun", controller.DryRunTaskPlugin)
 			taskPluginRoute.DELETE("/:key/versions/:version", controller.DeleteTaskPluginVersion)
 		}
-		apiRouter.GET("/task_plugin_options", middleware.AdminAuth(), middleware.RequirePermission(authz.TaskPluginBind), controller.GetTaskPluginOptions)
+		handlePermissionRoute(apiRouter.Group("", middleware.AdminAuth()), http.MethodGet, "/task_plugin_options", authz.TaskPluginBind, controller.GetTaskPluginOptions)
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)
 		tokenRoute := apiRouter.Group("/token")
@@ -317,7 +331,7 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
-		apiRouter.GET("/audit", middleware.DisableCache(), middleware.AdminAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
+		handlePermissionRoute(apiRouter.Group("", middleware.DisableCache(), middleware.AdminAuth()), http.MethodGet, "/audit", authz.AuditRead, controller.GetAuditLogs)
 		apiRouter.GET("/audit/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetAuditLogs)
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)
@@ -326,6 +340,8 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/channel_affinity_usage_cache", middleware.AdminAuth(), controller.GetChannelAffinityUsageCacheStats)
 		logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
+		logRoute.GET("/export", middleware.AdminAuth(), controller.ExportAllLogs)
+		logRoute.GET("/self/export", middleware.UserAuth(), controller.ExportUserLogs)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 
 		systemTaskRoute := apiRouter.Group("/system-task")
@@ -333,6 +349,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
+			systemTaskRoute.DELETE("/history", controller.DeleteSystemTaskHistory)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)
 		}

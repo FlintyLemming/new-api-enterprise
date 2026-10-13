@@ -18,9 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import axios from 'axios'
 
-import { getServerErrorMessageKey } from './server-error-message'
+import {
+  getServerErrorMessageKey,
+  getServerMessage,
+  safeServerErrorMessage,
+} from './server-error-message'
 
 export class AuthOperationError extends Error {
+  readonly [safeServerErrorMessage] = true
   constructor(
     message: string,
     readonly code?: string,
@@ -41,7 +46,7 @@ export class AuthOperationError extends Error {
           (error.response && error.response.status >= 500
             ? 'Please try again later.'
             : undefined) ||
-          error.response?.data?.message ||
+          getServerMessage(error.response?.data) ||
           error.message ||
           fallback,
         error.response?.data?.code,
@@ -71,7 +76,9 @@ export async function authResult<T>(
     const { data: response } = await request
     if (!response.success || response.data === undefined) {
       throw new AuthOperationError(
-        getServerErrorMessageKey(response) || response.message || fallback,
+        getServerErrorMessageKey(response) ||
+          getServerMessage(response) ||
+          fallback,
         response.code
       )
     }

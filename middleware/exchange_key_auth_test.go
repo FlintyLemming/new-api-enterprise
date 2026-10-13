@@ -246,3 +246,40 @@ func TestExchangeKeyAuthReadOnlyValid(t *testing.T) {
 	assert.Equal(t, "", body.TokenKey)
 	assert.NotContains(t, response.Body.String(), strings.TrimPrefix(key, "sk-alice-"))
 }
+
+// The exchange-key secret derives a relay key for every user, so a personal
+// access token may read the setting but never replace the secret.
+func TestExchangeKeySecretUpdateRequiresDashboardSession(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	gin.SetMode(gin.TestMode)
+	legacy := "exchange-key-legacy-token"
+	root := createMiddlewarePATUser(t, "exchange-key-root", legacy)
+	require.NoError(t, model.DB.Model(root).Update("role", common.RoleRootUser).Error)
+	scoped, _ := createMiddlewareScopedToken(t, root.Id, 0, "option:read", "option:write")
+
+	ok := func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"id": c.GetInt("id")}) }
+	router := gin.New()
+	router.GET("/api/option/exchange-key", RootAuth(), ok)
+	router.PUT("/api/option/exchange-key", RootAuth(), ok)
+
+	for _, test := range []struct {
+		name, method, token, code string
+		status                    int
+	}{
+		{name: "scoped token reads the setting", method: http.MethodGet, token: scoped, status: http.StatusOK},
+		{name: "scoped token cannot replace the secret", method: http.MethodPut, token: scoped, status: http.StatusForbidden, code: "AUTH_SESSION_REQUIRED"},
+		{name: "legacy token cannot replace the secret", method: http.MethodPut, token: legacy, status: http.StatusForbidden, code: "AUTH_SESSION_REQUIRED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(test.method, "/api/option/exchange-key", nil)
+			request.Header.Set("Authorization", "Bearer "+test.token)
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+
+			assert.Equal(t, test.status, response.Code, response.Body.String())
+			if test.code != "" {
+				assert.Contains(t, response.Body.String(), `"code":"`+test.code+`"`)
+			}
+		})
+	}
+}

@@ -38,7 +38,7 @@ func TestPostAudioConsumeQuotaRecordsTheFourTokenBuckets(t *testing.T) {
 	common.QuotaPerUnit = 500_000
 	t.Cleanup(func() { common.QuotaPerUnit = previousRate })
 
-	PostAudioConsumeQuota(settlement.context, settlement.relayInfo, audioUsage(200, 300, 50, 25), "")
+	PostAudioConsumeQuota(settlement.context, settlement.relayInfo, audioUsage(200, 300, 50, 25), nil)
 
 	record := settlement.usage(t)
 	assert.Equal(t, langfuse.UsageKindAudio, record.Kind)
@@ -63,7 +63,7 @@ func TestPostAudioConsumeQuotaRecordsTheFourTokenBuckets(t *testing.T) {
 func TestPostAudioConsumeQuotaKeepsTheZeroTokenRuleSettled(t *testing.T) {
 	settlement := newTracedSettlement(t, nil)
 
-	PostAudioConsumeQuota(settlement.context, settlement.relayInfo, audioUsage(0, 0, 0, 0), "")
+	PostAudioConsumeQuota(settlement.context, settlement.relayInfo, audioUsage(0, 0, 0, 0), nil)
 
 	record := settlement.usage(t)
 	assert.True(t, record.Available)
@@ -79,7 +79,7 @@ func TestPostAudioConsumeQuotaKeepsUsageWhenSettlementFails(t *testing.T) {
 		relayInfo.SubscriptionId = 0
 	})
 
-	PostAudioConsumeQuota(settlement.context, settlement.relayInfo, audioUsage(200, 300, 50, 25), "")
+	PostAudioConsumeQuota(settlement.context, settlement.relayInfo, audioUsage(200, 300, 50, 25), nil)
 
 	record := settlement.usage(t)
 	assert.True(t, record.Available)

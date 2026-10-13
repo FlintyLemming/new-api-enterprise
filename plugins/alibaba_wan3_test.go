@@ -38,7 +38,7 @@ func TestAlibabaWan3(t *testing.T) {
 		return roundTrip(t, value), nil
 	}
 
-	t.Run("duration -1 becomes the auto_duration marker so the host accepts the body", func(t *testing.T) {
+	t.Run("duration -1 becomes the auto_duration marker in every decoder", func(t *testing.T) {
 		resolved, callErr := decodeResponses("wan3.0-video", map[string]any{"model": "wan3.0-video", "input": "a cat", "duration": -1})
 		require.NoError(t, callErr)
 		requestBody := resolved["requestBody"].(map[string]any)
@@ -83,6 +83,16 @@ func TestAlibabaWan3(t *testing.T) {
 		require.ErrorContains(t, callErr, "only supported by wan3.0")
 	})
 
+	// /v1/video/generations has no plugin decoder, so -1 reaches the host's
+	// request validation as a vendor parameter; duration-auto@1 lets it through.
+	t.Run("metadata parameters keep -1 on /v1/video/generations", func(t *testing.T) {
+		body, facts, _ := submitAlibabaRequest(t, plugin, "wan3.0-video", map[string]any{
+			"model": "wan3.0-video", "prompt": "a cat", "metadata": map[string]any{"parameters": map[string]any{"duration": -1}},
+		})
+		assert.Equal(t, float64(-1), body["parameters"].(map[string]any)["duration"])
+		assert.Equal(t, float64(30), facts["seconds"])
+	})
+
 	t.Run("channel-mapped alias resolves defaults from the upstream model", func(t *testing.T) {
 		direct, callErr := plugin.Engine.Call(t.Context(), "buildSubmitRequest", submitCtx("wan3.0-video", "wan3.0-video", map[string]any{"model": "wan3.0-video", "prompt": "a cat"}))
 		require.NoError(t, callErr)
@@ -98,7 +108,7 @@ func TestAlibabaWan3(t *testing.T) {
 		parameters := roundTrip(t, value)["body"].(map[string]any)["parameters"].(map[string]any)
 		assert.Equal(t, "720P", parameters["resolution"])
 		assert.NotContains(t, parameters, "size")
-		assert.Equal(t, "adaptive", parameters["ratio"])
+		assert.Equal(t, "16:9", parameters["ratio"])
 
 		_, callErr = plugin.Engine.Call(t.Context(), "buildSubmitRequest", submitCtx("wan3.0-video", "wan3.0-video", map[string]any{"model": "wan3.0-video", "prompt": "a cat", "size": "1000*1000"}))
 		require.ErrorContains(t, callErr, "invalid size")

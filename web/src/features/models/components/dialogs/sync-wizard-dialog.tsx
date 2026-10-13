@@ -29,8 +29,16 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { handleServerError } from '@/lib/handle-server-error'
+import { createServerError } from '@/lib/server-error-message'
 
 import { previewUpstreamDiff, syncUpstream } from '../../api'
 import { getSyncLocaleOptions } from '../../constants'
@@ -97,14 +105,14 @@ export function SyncWizardDialog(props: {
     mutationFn: async () => {
       const response = await previewUpstreamDiff({ locale })
       if (!response.success || !response.data) {
-        throw new Error(response.message || t('Failed to preview metadata'))
+        throw createServerError(response, t('Failed to preview metadata'))
       }
       return response.data
     },
     onSuccess: (data) => {
       setPreview(data)
     },
-    onError: handleServerError,
+    onError: (error) => handleServerError(error),
   })
 
   const apply = useMutation({
@@ -116,7 +124,7 @@ export function SyncWizardDialog(props: {
         selections,
       })
       if (!response.success || !response.data) {
-        throw new Error(response.message || t('Metadata sync failed'))
+        throw createServerError(response, t('Metadata sync failed'))
       }
       return response.data
     },
@@ -128,7 +136,7 @@ export function SyncWizardDialog(props: {
       )
       setStep(3)
     },
-    onError: handleServerError,
+    onError: (error) => handleServerError(error),
   })
 
   useEffect(() => {
@@ -193,6 +201,17 @@ export function SyncWizardDialog(props: {
   const hiddenSelectedCount = selected.filter(
     (item) => !visibleNames.has(item.model_name)
   ).length
+  const selectedExistingModels = selected.filter(
+    (item) => item.kind === 'update'
+  )
+  const changedFieldCount = selectedExistingModels.reduce(
+    (total, item) => total + item.fields.length,
+    0
+  )
+  const selectedFieldCount = selectedExistingModels.reduce(
+    (total, item) => total + selection[item.model_name].length,
+    0
+  )
   const updates: MetadataSyncSelection[] = selected
     .filter(
       (item) => item.kind === 'create' || selection[item.model_name].length > 0
@@ -252,6 +271,16 @@ export function SyncWizardDialog(props: {
         ? [...previous[name], field]
         : previous[name].filter((value) => value !== field),
     }))
+  const chooseAllFields = (checked: boolean) =>
+    setSelection((previous) => {
+      const next = { ...previous }
+      for (const item of selectedExistingModels) {
+        next[item.model_name] = checked
+          ? item.fields.map((field) => field.field)
+          : []
+      }
+      return next
+    })
   const impact = (field: MetadataSyncField) => {
     if (field === 'name_rule') {
       return t(
@@ -373,20 +402,31 @@ export function SyncWizardDialog(props: {
             <div className='space-y-1'>
               <Label>{t('Metadata language')}</Label>
               <Select
- value={locale}
- disabled={busy}
- items={getSyncLocaleOptions(t)}
- onValueChange={(value) => {
-   if (value) setLocale(value as SyncLocale)
-   setPreview(null)
-   setSelection({})
-   setPage(0)
-   load.reset()
- }}
->
- <SelectTrigger className='w-44' aria-label={t('Metadata language')}><SelectValue /></SelectTrigger>
- <SelectContent>{getSyncLocaleOptions(t).map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-</Select>
+                value={locale}
+                disabled={busy}
+                items={getSyncLocaleOptions(t)}
+                onValueChange={(value) => {
+                  if (value) setLocale(value as SyncLocale)
+                  setPreview(null)
+                  setSelection({})
+                  setPage(0)
+                  load.reset()
+                }}
+              >
+                <SelectTrigger
+                  className='w-44'
+                  aria-label={t('Metadata language')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {getSyncLocaleOptions(t).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button
               variant='outline'
@@ -616,11 +656,50 @@ export function SyncWizardDialog(props: {
       )}
       {step === 1 && (
         <div className='space-y-5'>
-          <p className='text-muted-foreground text-sm'>
-            {t(
-              'New records include the fields below. Existing fields are kept unless explicitly selected.'
+          <div className='space-y-3'>
+            {selected.some((item) => item.kind === 'create') && (
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'New models: all metadata shown below will be imported automatically. No selection is needed.'
+                )}
+              </p>
             )}
-          </p>
+            {changedFieldCount > 0 && (
+              <>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'Existing models: select fields to replace their current values with the values on the right. Unselected fields stay unchanged.'
+                  )}
+                </p>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    className='h-auto min-h-7 max-w-full py-1.5 whitespace-normal'
+                    disabled={busy || selectedFieldCount === changedFieldCount}
+                    onClick={() => chooseAllFields(true)}
+                  >
+                    {t('Select all changed fields')}
+                  </Button>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className='h-auto min-h-7 max-w-full py-1.5 whitespace-normal'
+                    disabled={busy || selectedFieldCount === 0}
+                    onClick={() => chooseAllFields(false)}
+                  >
+                    {t('Clear field selection')}
+                  </Button>
+                  <p className='text-muted-foreground text-xs' role='status'>
+                    {t('{{selected}} of {{total}} changed fields selected', {
+                      selected: selectedFieldCount,
+                      total: changedFieldCount,
+                    })}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
           {selected.map((item) => (
             <section key={item.model_name} className='space-y-2'>
               <h3 className='font-mono text-sm font-semibold break-all'>
