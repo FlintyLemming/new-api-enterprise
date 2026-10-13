@@ -74,8 +74,11 @@
 
 ### 行为变化与部署注意
 
-1. **计费**：声明 `prompt_excludes_cache`、使用表达式计费且表达式没有单独给 `cr` 定价的渠道，缓存读 token 现在按输入价并入 `p`。此前表达式路径对这部分不计费；上游 `f064bffa2` 对 Anthropic 语义做了同样修正，这里保持一致。倍率计费路径不变。该口径下 tier 条件用的 `len` 仍是原始 prompt（不含缓存），这是 rc.36 时有测试锁定的既有行为，本次未改。
-2. **访问令牌（rc.41）**：面板 PAT 对未声明的路由默认拒绝，已为 12 条内部路由声明规则（Langfuse/Exchange Key 设置读 `option:read`、Langfuse 写 `option:write`、Exchange Key 写仅限会话、清除活动 IP `user:write`、重置卡管理 `billing:*`、用户自助 `wallet:*`）。旧版单一面板令牌升级后 30 天内仍可用，之后被拒绝，依赖它的内部脚本需提前换新令牌。
+1. **计费（只涉及表达式计费，倍率计费不变）**：`BuildTieredTokenParams` 现在完全按渠道声明的原始口径归一化。
+   - 声明 `prompt_excludes_cache` 的渠道（以及 legacy Claude 派生用量）：表达式没给 `cr` 单价时，缓存读按输入价并入 `p`（此前不收费，跟随上游 `f064bffa2` 对 Anthropic 语义的同一修正）；`len` 加回缓存读写，按完整上下文选档（此前只算未缓存部分，长上下文档会被低估）；图片、音频输入仍在 prompt 里，表达式单独定价时从 `p` 扣除（此前重复计费）。
+   - 声明 `prompt_includes_cache` 但上游回 Anthropic 语义用量的渠道：按含缓存口径归一化。此前表达式路径忽略这一声明，`cr` 单独定价时缓存读被重复计费；合并上游的并入规则后，`cr` 未定价时也会重复（P 从 1000 变 1800）。这一条由合并后的独立复核发现，已在 `e886f45ac` 修复，`a9fddc117` 构建的镜像含此问题，不应部署。
+   - 后两类是 rc.36 起就存在的问题，按 `pkg/billingexpr/expr.md` 的自动排除与 `len` 规则一并修正；未声明口径的渠道行为不变。
+2. **访问令牌（rc.41）**：面板 PAT 对未声明的路由默认拒绝，已为 12 条内部路由声明规则（Langfuse/Exchange Key 设置读 `option:read`；两者的写入仅限登录会话，因为 Exchange Key 能为任意用户派生 relay key、Langfuse 配置决定全部对话内容导出到哪里；清除活动 IP `user:write`、重置卡管理 `billing:*`、用户自助 `wallet:*`）。旧版单一面板令牌升级后 30 天内仍可用，之后被拒绝，依赖它的内部脚本需提前换新令牌。
 3. **i18n（rc.43）**：面板接口消息改为英文源文本、由前端翻译。新增环境变量 `DEFAULT_LANGUAGE`（默认 `en`），决定服务端日志和未声明语言时后端消息的语言，内部部署可按需设为 `zh-CN`。重置卡使用记录从中文硬编码改为英文 key + `content_parts`，前端按查看者语言渲染；历史日志文本不变。
 4. **IP 限制覆盖面扩大**：上面列出的几条任务/插件/WebSocket 链路开始计入同一滑动窗口，现网若开启了全局限制，这些调用也会受约束。
 5. **数据库**：GORM 组版本未变（core 1.25.12、mysql 1.5.7、postgres 1.5.9、glebarez/sqlite 1.11.0）。上游 rc.38 的 PostgreSQL 迁移器会按 catalog 名删除与 `uniqueIndex` 字段冲突的单列 UNIQUE 约束（`ACCESS EXCLUSIVE` 锁表），随后 GORM 重建唯一索引；`users.username`、`top_ups.trade_no` 等裸 `unique` 字段不受影响。生产库来自 pgloader，已用模拟的遗留约束验证（见下方 legacy 用例），部署前仍应先做逻辑备份，并用 `SELECT conrelid::regclass, conname FROM pg_constraint WHERE contype = 'u'` 看清会被处理的约束。
@@ -97,7 +100,7 @@
 | `cd web && bun run build` | 通过，产物约 67.5 MB / gzip 20.8 MB |
 | `cd web && bun run i18n:sync` | 七种语言 missingCount=0 |
 
-新增的两个回归用例做过反向确认：把 `PUT /api/option/exchange-key` 临时放宽为 `option:write` 后 `TestExchangeKeySecretUpdateRequiresDashboardSession` 失败；在上游原 `export.ts` 上运行新增的 CSV 毫秒用例失败。
+新增回归用例均做过反向确认：把 `PUT /api/option/exchange-key`、`PUT /api/option/langfuse` 临时放宽为 `option:write` 后 `TestSecretAndExportSettingWritesRequireDashboardSession` 失败；在 `a9fddc117` 的 `tiered_settle.go` 上，`TestBuildTieredTokenParams_PromptCacheInclusionFlag` 新增的三个用例与 `len` 断言失败（P=1200、1000、1000，len=1000）；在上游原 `export.ts` 上运行新增的 CSV 毫秒用例失败。
 
 ### 数据库矩阵
 
@@ -118,6 +121,7 @@
 ### 遗留
 
 - Langfuse 不追踪 Responses WebSocket 会话。
+- `controller.Relay` 在业务代码 panic 时不退还预扣额度：退款 defer 只看 `newAPIError`，panic 时它为 nil。上游 rc.44 与合并前的内部版本同样如此，本次未改。
 - 任务产物下载 `TokenOrTaskArtifactAccessAuth` 的 Bearer 回退未接 IP 限制。
 - `controller/option.go` 里两条拒绝通用接口写入 Langfuse / Exchange Key 配置的提示仍是中文硬编码，未按 rc.43 规范改成英文 key。
 - `web/src/i18n/locales/_reports/*.untranslated.json` 是 `i18n:sync` 的生成物，已在 `web/.gitignore` 中，但早先被内部提交跟踪；本次没有动。
