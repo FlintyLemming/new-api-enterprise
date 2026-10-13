@@ -9,6 +9,14 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-10-13 rc.44 核对
+
+继续保留：上游日志 `use_time` 仍是整秒；rc.39 起上游另有聚合性能指标（`perf_metrics.total_latency_ms`），不写日志行。
+
+- `model/log.go`：上游把日志正文改为结构化 `Content []*common.Message` 并经 `other.setContent` 写 `content_parts`；`RecordConsumeLogParams` 合并为 `Content []*common.Message` + `UseTimeMillis`，`duration_ms` 在 `setContent` 前写入。
+- 上游把渠道错误日志挪到 `service/relay_error.go` 的 `ProcessChannelError`，毫秒计时随之移植；`controller/channel-test.go`、`service/violation_fee.go` 按新签名合并。
+- 前端：`common-logs-columns.tsx` 以上游版本为底重放 TPS 与 Timing 两处毫秒逻辑；移动卡片只合并 import。rc.44 新增的日志 CSV 导出原先写 `use_time` 秒数，改为同样优先 `duration_ms`（如 `1.543s`），`export.test.ts` 新增用例，上游原实现下该用例失败。
+
 ## 2026-09-09 rc.36 核对
 
 继续保留，上游 `use_time` 仍为秒且未提供毫秒字段。适配 `*model.LogOther`：通过 `SetPublic("duration_ms", ...)` 添加耗时，保留上游对 admin/root/audit 元数据的隔离；`RecordErrorLog` 使用上游 `channelError.ChannelId` 来源。

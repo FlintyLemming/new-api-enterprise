@@ -4,7 +4,7 @@
 
 本分支（`internal-custom`）是**内部部署使用的长期定制分支**，上游的完整介绍、文档、部署指南请直接看[上游仓库](https://github.com/QuantumNous/new-api) 和 [官方文档](https://docs.newapi.ai/)。本 README 只介绍相对上游**改了什么、加了什么**。
 
-- 当前上游基线：`v1.0.0-rc.36`
+- 当前上游基线：`v1.0.0-rc.44`
 - 完整改动台账：`docs/internal/`（仅存在于本分支）
 
 ## 相对上游的主要改动
@@ -37,7 +37,12 @@
 ### 修复与改进
 
 8. **日志耗时毫秒精度**
-   消费日志记录 `other.duration_ms`（毫秒级），前端展示在秒级 `use_time` 精度不足时回退使用。
+   消费日志记录 `other.duration_ms`（毫秒级），日志表格、详情、移动端卡片和 CSV 导出优先使用它，旧日志回退秒级 `use_time`。
+
+### 构建与发布
+
+9. **镜像发布到本仓库 GHCR**
+   `docker-build.yml`（tag 触发）与 `docker-image-branch.yml`（手动指定分支）改推 `ghcr.io/<owner>/<repo>`，使用内置 `GITHUB_TOKEN` 登录，不依赖 Docker Hub secrets。
 
 ## 分支模型
 

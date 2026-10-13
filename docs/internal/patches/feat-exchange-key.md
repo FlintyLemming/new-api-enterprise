@@ -9,6 +9,15 @@
 | 状态 | `internal-only` |
 | 上游 PR | 未提交 |
 
+## 2026-10-13 rc.44 核对
+
+继续保留。上游 rc.41 的「访问令牌」是面板管理 API 的具名 PAT（JWT 识别 + 作用域），不是 relay 凭据，与本功能不重叠；exchange key 不是 JWT，`TokenOrUserAuth` 不会把它误判为 PAT。
+
+- `middleware/auth.go`：`TokenAuthReadOnly` 的 exchange-key 分支改用上游的 `common.ApiErrorStatus` 响应形状，`TokenAuth` 分支未冲突。
+- PAT 路由规则（上游对未声明路由默认拒绝）：`GET /api/option/exchange-key` 需 `option:read`；`PUT /api/option/exchange-key` 为 session-only——该 SECRET 能为任意用户派生 relay key，任何 PAT（含旧版面板令牌）都不能改写。新增 `TestExchangeKeySecretUpdateRequiresDashboardSession`，已用「临时放宽规则后测试失败」确认有效。
+- `service/exchange_key_quota_test.go`：上游 `NewBillingSession` 现会读 `i18n.StatedLang(c)`，测试夹具补上 `c.Request`。
+- 上游 rc.44 对普通用户日志查询加了最长时间范围；`GET /api/log/token` 的 exchange-key 分支与上游 `GetLogByTokenId` 一致按 `MaxRecentItems` 截取，未受影响。
+
 ## 2026-09-09 rc.36 核对
 
 继续保留，上游没有共享 SECRET 派生的免 token 行 HMAC 身份。保留鉴权、用户账单、只读日志、token 配额豁免和专用配置接口。适配上游 `LogOther`：exchange-key 日志查询继续调用用户视图投影，不能泄漏 channel/admin/root/audit 信息。

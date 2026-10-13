@@ -9,6 +9,16 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-10-13 rc.44 核对
+
+继续保留：rc.37–rc.44 仍无 OTLP/Langfuse 导出，`go.mod` 里上游只有间接依赖 `go.opentelemetry.io/otel` 1.41.0，被内部直接依赖的 1.44.0 覆盖。
+
+- `controller/relay.go`：上游把预扣费抽成 `relay.PrepareRequestBilling`，失败退款与违规扣费改为预扣成功后注册的 `relay.RefundFailedRequestBilling` defer，另加 perf-metrics defer 和请求策略终止记录，渠道错误处理移到 `service/relay_error.go`。内部 finalizer 并入上游写响应的 defer：`langfuse.Begin` 仍紧跟 `GenRelayInfo`、早于 `PrepareRequestBilling`（敏感词和额度拒绝照样有 trace）；退款 defer 注册在 finalizer 之后，按 LIFO 先于写响应和 `langfuse.Finish` 执行；panic 由 finalizer 收尾后重新抛出。`billingPhaseReached` 由「预扣成功后才注册退款 defer」取代。`controller/relay_langfuse_test.go` 改为断言新结构（新增 `TestRelayRefundsOnlyAfterBillingWasReserved`）。
+- `service/text_quota.go` / `service/quota.go`：结算点 Recorder 快照保持原位，日志改用上游 `common.LogText`；音频结算改用上游 `PostAudioConsumeQuota(..., nil)` 新签名，`settlesAsAudioUsage` / `responsesSettlesAsAudio` 保留，Responses 结算走上游新抽出的 `ConsumeResponsesQuota`。
+- `service/tiered_settle.go`：内部 `promptTokensIncludeCache` 参数与上游 `img_cr`、Anthropic 语义下「`cr` 无单价时并入 P」同时保留；声明 `prompt_excludes_cache` 的非 Claude 渠道同样在 `cr` 无单价时把缓存读并入 P（详见 [总台账 rc.44 节](../README.md#2026-10-13-同步上游-v100-rc44)）。
+- 已知缺口：rc.38 新增的 Responses WebSocket 会话（`relay/responses_websocket.go`）不经过 `controller.Relay`，不产生 trace；`langfuse.BeginAttempt` 在无 Recorder 时为 no-op，不影响计费。
+- 验证：`go test ./...`、`go test -race ./service/langfuse/...`（318.191s）通过。
+
 ## 2026-09-09 rc.36 核对
 
 继续保留，上游未提供等价 Langfuse OTLP 配置、导出和 session/usage 归属。转换 sidecar、hosted tools 与 usage 合并修复采用上游实现；内部 `cache_prompt_token_semantic`、summary 的折叠标志及结算点 Recorder 快照继续保留。

@@ -9,6 +9,19 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-10-13 rc.44 核对
+
+继续保留。上游 rc.38 的「请求策略」只覆盖渠道亲和、重试与渠道健康，没有按用户的 IP 数限制。用户缓存 schema 上游仍为 v2，内部 v3 不变。
+
+TokenAuth 链覆盖补齐（这几处原先都没有 `UserIpLimit()`）：
+
+- rc.38 新增的 Responses WebSocket：握手路由 `GET /v1/responses` 挂在 `relayV1Router` 的 `UserIpLimit()` 之后；每个 `response.create` 事件走 `controller/responses_websocket.go` 的内部 gin 引擎，链上加 `UserIpLimit()`（该引擎 `RemoteAddr` 取握手时解析出的客户端 IP），长连接期间每个事件都刷新滑动窗口。
+- rc.39 新增的任务插件 `openai_image.generate/edit` 协议链。
+- 早于本次的缺口：`router/task-router.go` 的 `/v1/tasks/:key` 提交与查询、`router/plugin-router.go` 的插件动态任务路由。
+- 未覆盖：`TokenOrTaskArtifactAccessAuth` 的 Bearer 回退（任务产物内容下载），该中间件内部直接调用 `TokenAuth()(c)`，需要时另行处理。
+
+管理端「清除活动 IP」错误改用上游 `common.ApiErrorT` 英文源文本；relay 拒绝消息 `user.ip_limit_reached` 属于发给 AI 客户端的后端文案，按上游新规保留在 `i18n/keys.go`（en / zh-CN / zh-TW）。PAT 规则 `DELETE /api/user/:id/ip_limit` 需 `user:write`；用户编辑里的 `concurrent_ip_limit` 与分组、备注同级，不触发上游 rc.41 的管理员二次校验。
+
 ## 2026-09-09 rc.36 核对
 
 继续保留，上游没有等价的滑动窗口 IP 限制。所有 relay、video 和五条插件协议 TokenAuth 链均保留 `UserIpLimit()`。上游缓存 schema 仍为 v2，内部 v3 不需要递增。

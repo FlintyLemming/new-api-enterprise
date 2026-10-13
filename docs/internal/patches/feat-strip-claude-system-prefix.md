@@ -9,6 +9,12 @@
 | 状态 | `internal-only` |
 | 上游 PR | 未提交 |
 
+## 2026-10-13 rc.44 核对
+
+继续保留，上游仍无等价过滤。上游给 `ClaudeMessagesRequestToOpenAIChat` 加了 `ctx` 参数，两边都新增了 `to_oai_chat_req_test.go`（add/add 冲突），合并后保留全部内部用例并补 `context.Background()`。上游 rc.42 在 `relay/channel/ali/web_search.go` 为 DashScope 的 Anthropic 兼容端点主动注入 `x-anthropic-billing-header: cc_entrypoint=cli;`（原生 Claude 请求，不做 OpenAI chat 压平），与本开关只作用于 Claude→OpenAI chat 压平的路径不相交，互不影响。
+
+前端：上游 rc.37 重写了渠道抽屉（统一新建/编辑、分块配置、`lib/channel-configuration.ts` 统计各块是否已配置）。开关移植为 `stripBillingHeaderFields`，放在「Request processing」块，`channel-configuration.ts` 的 `requestProcessing` 字段表与已配置判断同步加入 `strip_anthropic_billing_header`。
+
 ## 2026-09-09 rc.36 核对
 
 继续保留，上游没有等价 `x-anthropic-billing-header` 过滤。适配上游 `strings.Builder` 重构，在 `WriteString` 前保持 nil 检查和过滤；过滤后为空时不生成空 system message，OpenRouter Claude 分块路径仍保留原文。相关 relaykit 测试通过。删除旁边已被上游替代的缓存用量开关，不影响此功能。验证见 [同步记录](../sync-rc36-2026-09-09.md)。
