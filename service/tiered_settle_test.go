@@ -1033,20 +1033,28 @@ func TestBuildTieredTokenParams_PromptCacheInclusionFlag(t *testing.T) {
 			wantP:                    700, // 1000 - 200 cr - 100 cc
 		},
 		{
-			name:                     "claude semantic with flag true",
+			name:                     "declared inclusive claude usage subtracts priced cache",
 			usage:                    cacheUsage(),
 			isClaudeSemantic:         true,
 			promptTokensIncludeCache: true,
 			expr:                     `tier("base", p * 3 + c * 15 + cr * 0.3 + cc * 3.75)`,
-			wantP:                    1000, // Claude never subtracts from P
+			wantP:                    700, // the declaration says input_tokens already count cache
 		},
 		{
-			name:                     "claude semantic with flag false",
+			name:                     "declared inclusive claude usage keeps unpriced cache once",
+			usage:                    cacheUsage(),
+			isClaudeSemantic:         true,
+			promptTokensIncludeCache: true,
+			expr:                     `tier("base", p * 3 + c * 15)`,
+			wantP:                    1000, // cache reads are not added on top of an inclusive prompt
+		},
+		{
+			name:                     "claude semantic exclusive usage",
 			usage:                    cacheUsage(),
 			isClaudeSemantic:         true,
 			promptTokensIncludeCache: false,
 			expr:                     `tier("base", p * 3 + c * 15 + cr * 0.3 + cc * 3.75)`,
-			wantP:                    1000, // identical to flag true: flag has no Claude effect
+			wantP:                    1000, // Anthropic input_tokens already leave cache out
 		},
 		{
 			name:                     "declared exclusive folds unpriced cache reads into input",
@@ -1057,12 +1065,12 @@ func TestBuildTieredTokenParams_PromptCacheInclusionFlag(t *testing.T) {
 			wantP:                    1200, // cache reads sit outside P and have no cr price
 		},
 		{
-			name:                     "declared exclusive keeps raw prompt with image var",
+			name:                     "declared exclusive still subtracts priced image input",
 			usage:                    imageUsage(),
 			isClaudeSemantic:         false,
 			promptTokensIncludeCache: false,
 			expr:                     `tier("base", p * 2 + c * 8 + img * 2.5)`,
-			wantP:                    1000, // every sub-bucket subtraction is skipped, img included
+			wantP:                    700, // only cache is outside the prompt; img is billed once
 		},
 	}
 
@@ -1091,8 +1099,9 @@ func TestBuildTieredTokenParams_ExclusiveFlagKeepsSubBucketParams(t *testing.T) 
 	// Sub-bucket counts are still reported via their own variables.
 	assert.Equal(t, 200.0, params.CR)
 	assert.Equal(t, 100.0, params.CC)
-	// Non-Claude: Len stays the raw prompt total regardless of the flag.
-	assert.Equal(t, 1000.0, params.Len)
+	// The exclusive prompt leaves cache out, so len adds it back for tier
+	// conditions, as for Claude usage.
+	assert.Equal(t, 1300.0, params.Len)
 }
 
 const complexTieredExpr = `p <= 200000 ? tier("standard", p * 3 + c * 15 + cr * 0.3 + cc * 3.75 + cc1h * 6 + img * 3 + img_o * 30 + ai * 10 + ao * 40) : tier("long_context", p * 6 + c * 22.5 + cr * 0.6 + cc * 7.5 + cc1h * 12 + img * 6 + img_o * 60 + ai * 20 + ao * 80)`

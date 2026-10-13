@@ -25,13 +25,16 @@ type TieredResultWrapper = billingexpr.TieredResult
 // sub-categories are separately priced.
 //
 // promptTokensIncludeCache reports whether the raw upstream prompt tokens
-// include the cache/image/audio sub-buckets. Subtractions from P only apply
-// when it is true; when the upstream already reports an exclusive caliber,
-// those sub-bucket tokens are not part of P and must not be subtracted
-// again, and cache reads without their own cr price are added to P exactly
-// as under Claude usage semantics. It has no effect under Claude usage
-// semantics.
+// include cache reads and writes. When true the prompt is normalized like
+// GPT-format usage even under Claude usage semantics, because a channel can
+// declare that its Claude-format input_tokens already count cache. When false
+// the prompt is exclusive: cache is not subtracted again, cache reads without
+// their own cr price are added to P, and len adds cache back, as under Claude
+// usage semantics. Image and audio input stay inside an exclusive prompt.
 func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, promptTokensIncludeCache bool, usedVars map[string]bool) billingexpr.TokenParams {
+	if promptTokensIncludeCache {
+		isClaudeUsageSemantic = false
+	}
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)
 	cr := float64(usage.PromptTokensDetails.CachedTokens)
@@ -45,7 +48,7 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 
 	img := float64(usage.PromptTokensDetails.ImageTokens)
 	imgCR := float64(0)
-	if usedVars["img_cr"] && !isClaudeUsageSemantic {
+	if usedVars["img_cr"] && promptTokensIncludeCache {
 		details := usage.PromptTokensDetails.CachedTokensDetails
 		if details != nil && details.ImageTokens != nil {
 			cachedImage := *details.ImageTokens
@@ -82,8 +85,9 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 	// len = total input context length for tier condition evaluation.
 	// Non-Claude: prompt_tokens already includes everything.
 	// Claude: input_tokens is text-only, so add cache read + cache creation.
+	// Any other exclusive prompt leaves cache out in the same way.
 	inputLen := p
-	if isClaudeUsageSemantic {
+	if isClaudeUsageSemantic || !promptTokensIncludeCache {
 		inputLen = p + cr + cc5m + cc1h
 	}
 
@@ -94,9 +98,8 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 			p += cr
 		}
 	} else {
-		// Subtract sub-buckets from P only when the raw upstream prompt
-		// actually includes them; an exclusive caliber already excluded
-		// cache/image/audio counts from prompt_tokens.
+		// An inclusive prompt counts every sub-bucket, so the priced ones
+		// come out of P.
 		if promptTokensIncludeCache {
 			if usedVars["cr"] {
 				p -= cr
@@ -116,10 +119,19 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 			if usedVars["ai"] {
 				p -= ai
 			}
-		} else if !usedVars["cr"] {
-			// An exclusive caliber reports cache reads outside the prompt, as
-			// Anthropic input does, so unpriced cache reads fold into input.
-			p += cr
+		} else {
+			// An exclusive prompt leaves cache reads out, as Anthropic input
+			// does, so unpriced cache reads fold into input. Image and audio
+			// input are still inside it.
+			if !usedVars["cr"] {
+				p += cr
+			}
+			if usedVars["img"] {
+				p -= img
+			}
+			if usedVars["ai"] {
+				p -= ai
+			}
 		}
 		if usedVars["img_o"] {
 			c -= imgO

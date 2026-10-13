@@ -308,9 +308,10 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /pg/chat/completions": accessTokenSessionRule,
 
 	// internal-custom routes. The exchange-key secret derives relay keys for
-	// every user, so changing it needs a dashboard session.
+	// every user and the Langfuse exporter receives conversation content, so
+	// changing either needs a dashboard session.
 	"GET /api/option/langfuse":                         accessTokenScopeRule("option:read"),
-	"PUT /api/option/langfuse":                         accessTokenScopeRule("option:write"),
+	"PUT /api/option/langfuse":                         accessTokenSessionRule,
 	"GET /api/option/exchange-key":                     accessTokenScopeRule("option:read"),
 	"PUT /api/option/exchange-key":                     accessTokenSessionRule,
 	"DELETE /api/user/:id/ip_limit":                    accessTokenScopeRule("user:write"),
