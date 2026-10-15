@@ -285,3 +285,24 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
   - `ghcr.io/flintylemming/new-api-enterprise:internal-custom-20261013-bd8600f`
   - 两者是同一个多架构清单 `sha256:51f39a7d8ef0b588f70cc474e33bbd2570f4328c7f2868482753b3b6d2fdd149`，另有各自的 `-amd64`（`sha256:67335d44206f84560545f27dae1499c9ef9938622695c25b40e3b0a7f9a53271`）/ `-arm64`（`sha256:d88648b551e1c89b0561fb5ced4a9ccd51ce19c29de05c131ca92ac6f2e1c011`）单架构 tag；cosign 签名正常。
 - 部署前（未执行）：沿用 §11 先在生产 schema-only 拷贝上彩排两次启动，重点看 rc.38 起对遗留单列 UNIQUE 约束的自动处理；做 PostgreSQL 逻辑备份；镜像取法和 `pull_policy` 注意事项同 §12。构建需要的 Go 1.26 已由上游 Dockerfile 处理，本机 `git archive` + `docker build` 兜底方式仍可用。
+
+
+## 14. 2026-10-15 rc.44 镜像上线
+
+- 镜像：`ghcr.io/flintylemming/new-api-enterprise:internal-custom-20261013-bd8600f`，即 §13 第二次构建（多架构清单 `sha256:51f39a7d8ef0b588f70cc474e33bbd2570f4328c7f2868482753b3b6d2fdd149`，本地 image `sha256:56b78ce0857ccbe4199477d66901463f96d7507acd3050567f4060abb31f5dd2`，revision `bd8600f7b`）。本机没有 GHCR 登录，匿名 `docker pull` 成功。
+- 旧镜像：`new-api:rc36-e6b8fc10d`（`sha256:a63c1c2698c3ab36c97ef7ebf0352ae6dbcf4ad17d0d8f7f77e31c826cf36dd2`）仍保留本地。compose 在 2026-09-15 已改成浮动 tag `:internal-custom`（本地那份是 9/14 首次 GHCR 构建 `5564680`），但当时没有重建容器，生产一直运行 rc36-e6b8fc10d。本次改为固定带日期的 tag。
+- 备份目录：`/home/flintylemming/appdata/8850-new-api/backups/rc44-bd8600f-20261015/`（目录 700、文件 600）。包含 `compose.before.yaml`、`containers-before.txt`、PostgreSQL 完整逻辑备份 `postgres-before.dump`（289001194 字节，`pg_restore --list` 854 项）、`schema-before.sql`、`rowcounts-before.txt`、`option-keys-before.txt` 及彩排日志和 schema 快照。ClickHouse 未导出：日志库建表是 `IF NOT EXISTS`，`Log` / `AuditLog` 模型与 rc.36 相同，本次没有 schema 变化。
+- 彩排（与生产隔离）：建 `--internal` 网络（无外网出口，彩排实例不会调用真实上游或发信），起临时 `postgres:15`（15.17，与生产同版本），恢复上面的完整备份。生产库里另有 `leycode` schema，给 `leycode` 角色的 129 条授权因角色不存在报错；忽略权限和属主后 schema 与生产一致，7 张关键表行数一致。
+  - 新镜像连续启动两次：迁移约 3 秒，2.9 秒就绪，无报错；两次 schema 完全一致。变化只有：新增 `user_access_tokens` 表、`passkey_credentials.rp_id` 列，`task_plugins.icon` 由 `varchar(524288)` 改为 `text`，`options` 新增 `LegacyAccessTokenRetireAt`。没有删除任何约束（rc.38 的遗留约束处理在本库没有可处理对象）。彩排未配 `LOG_SQL_DSN`，因此在主库建了 `audit_logs`，生产不会。
+  - 回滚演练：用旧镜像 `rc36-e6b8fc10d` 启动已迁移的彩排库，正常就绪，只把 `task_plugins.icon` 改回原类型。
+  - 第一次启动彩排实例时沿用了生产的 `--log-dir /app/logs`，镜像内没有该目录而退出（生产靠挂载卷存在），补 tmpfs 后正常，与迁移无关。彩排容器、网络和临时凭据已删除。
+- 切换：compose 只改 image 行，保留 `pull_policy: never`、端口、挂载、网络和环境变量。执行 `docker compose -f /home/flintylemming/appdata/8850-new-api/compose.yaml up -d --no-deps --wait --wait-timeout 180 new-api`（13:51:05–13:51:54 UTC）。新容器 `69e88c8fac86` 于 13:51:23 UTC 启动，主库迁移约 2 秒，2.7 秒就绪，healthy，重启 0 次。PostgreSQL、ClickHouse、Redis 和 Langfuse 容器未重建。
+- 验证：
+  - `/api/status` 返回 success=true、version=`internal-custom-20261013-bd8600f`；首页与 6 个静态资源 HTTP 200。
+  - 生产库新增对象与彩排一致；public 下 38 个主键、4 个唯一约束（只多了 `user_access_tokens_pkey`），`leycode` schema 未变。
+  - 切换后约 6 分钟：relay 23 个 200、1 个 503。503 是用户 422 的某个客户端自 10-11 起每分钟请求一次 `vip` 分组不可用的 `deepseek-v4-flash-0731`（每天 1440 次），与升级无关。ClickHouse 写入 37 条消费日志，全部带 `duration_ms`；Langfuse 收到 35 条 trace（切换前 10 分钟为 42 条）。
+  - Exchange Key 近三天约每天 100 次调用，观察窗口内还没有调用；没有为此主动发测试请求。未发起付费模型探测。
+- 新版启动提示：`TRUSTED_PROXIES` 未设置（沿用兼容默认，信任回环和私网代理，客户端 IP 判定与旧版一致）；`SESSION_COOKIE_SECURE` 未设置。本次没有改 compose 环境变量。
+- 旧版面板访问令牌：`root`、`dongkh`、`yuanhs`、`linxh` 4 个账号持有，2026-11-14 21:51（北京时间）之后会被拒绝，依赖它的脚本需在此之前改用具名访问令牌。
+
+回滚应用镜像：将 compose 的 image 改回 `new-api:rc36-e6b8fc10d`，再执行同一 `up -d --no-deps --wait` 命令（彩排已验证旧镜像能在迁移后的库上启动）。新增的表和列保留无害；不要自动恢复数据库备份，它是恢复依据，不是无损即时回滚。

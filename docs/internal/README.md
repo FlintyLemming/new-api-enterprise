@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-2026-10-13 同步至 `v1.0.0-rc.44`（`633b4c5b1`，GitHub Latest release），合并提交 `04f2b55c5`，详见下方 [rc.44 同步记录](#2026-10-13-同步上游-v100-rc44)。合并前先把本地 `internal-custom` 快进到 `enterprise/internal-custom`（`f8775ede8`，含 2026-09-14 远端会话提交的重置卡持卡人用户名 `286e1bd2c` 与 GHCR 镜像发布 `556468079`），备份为 `backup/internal-custom-before-rc44-20261013`；本地 `main` 快进至该 tag。`internal-custom` 与 `main` 已推送到 GitHub `enterprise`；GitLab 未推送（本机没有可用的 GitLab SSH 凭据）。随后手动触发 GHCR 镜像构建，结果记在[部署台账 §13](patches/2026-08-15-langfuse-local-deployment.md#13-2026-10-13-rc44-镜像构建)；未部署。
+2026-10-13 同步至 `v1.0.0-rc.44`（`633b4c5b1`，GitHub Latest release），合并提交 `04f2b55c5`，详见下方 [rc.44 同步记录](#2026-10-13-同步上游-v100-rc44)。合并前先把本地 `internal-custom` 快进到 `enterprise/internal-custom`（`f8775ede8`，含 2026-09-14 远端会话提交的重置卡持卡人用户名 `286e1bd2c` 与 GHCR 镜像发布 `556468079`），备份为 `backup/internal-custom-before-rc44-20261013`；本地 `main` 快进至该 tag。`internal-custom` 与 `main` 已推送到 GitHub `enterprise`；GitLab 未推送（本机没有可用的 GitLab SSH 凭据）。随后手动触发 GHCR 镜像构建，结果记在[部署台账 §13](patches/2026-08-15-langfuse-local-deployment.md#13-2026-10-13-rc44-镜像构建)。2026-10-15 已部署到 8850（`:internal-custom-20261013-bd8600f`），彩排、切换与验证见[部署台账 §14](patches/2026-08-15-langfuse-local-deployment.md#14-2026-10-15-rc44-镜像上线)。
 
-上一基线：2026-09-09 同步 `v1.0.0-rc.36`（合并提交 `a72e8c116`，见 [rc.36 同步与数据库验证记录](sync-rc36-2026-09-09.md)），8850 环境当前运行 `new-api:rc36-e6b8fc10d`（[部署台账 §11](patches/2026-08-15-langfuse-local-deployment.md#11-2026-09-12-重置卡--缓存统计口径镜像上线)）。
+上一基线：2026-09-09 同步 `v1.0.0-rc.36`（合并提交 `a72e8c116`，见 [rc.36 同步与数据库验证记录](sync-rc36-2026-09-09.md)），8850 环境此前运行 `new-api:rc36-e6b8fc10d`（[部署台账 §11](patches/2026-08-15-langfuse-local-deployment.md#11-2026-09-12-重置卡--缓存统计口径镜像上线)）。
 
 ## 分支模型
 
