@@ -306,3 +306,13 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 旧版面板访问令牌：`root`、`dongkh`、`yuanhs`、`linxh` 4 个账号持有，2026-11-14 21:51（北京时间）之后会被拒绝，依赖它的脚本需在此之前改用具名访问令牌。
 
 回滚应用镜像：将 compose 的 image 改回 `new-api:rc36-e6b8fc10d`，再执行同一 `up -d --no-deps --wait` 命令（彩排已验证旧镜像能在迁移后的库上启动）。新增的表和列保留无害；不要自动恢复数据库备份，它是恢复依据，不是无损即时回滚。
+
+
+## 15. 2026-11-05 对话内 system 消息内联开关上线
+
+- 源码：`62c9e13c8`（[feat-inline-claude-system-messages](feat-inline-claude-system-messages.md)），已推送 GitHub `enterprise` 的 `internal-custom`。
+- 构建：[run 42013504870](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42013504870)，产出 `ghcr.io/flintylemming/new-api-enterprise:internal-custom-20261105-62c9e13`（多架构清单 `sha256:270514d68625a21c11ae2e1da65f7e18b164fbc86ecc55df8901d509236e6e2f`，revision 标签 `62c9e13c8`）。
+- 无数据库迁移，未做彩排。compose 备份 `compose.yaml.bak-20261105-inline-sysmsg`，只改 image 行；channel 44 的 `setting` 加 `"inline_claude_system_messages": true`（SQL `jsonb ||`）。`docker compose up -d --no-deps --wait new-api` 后 healthy，`/api/status` 版本 `internal-custom-20261105-62c9e13`。
+- 验证：zhangran 部署后暂无流量。取其会话 `6ba681da` 相邻三轮真实请求（Langfuse `events_full`），经 `InlineSystemMessages()` 改写后直连 vLLM：第 2、3 轮 cache_read 98304 / 99840，creation 1536 / 4288（改写前生产上同类请求 read ≈ 5.5k、creation ≈ 9 万+）。
+- 同期 mucr（user 422）`client_gone` 增多始于 10:20 UTC，早于本次切换（10:53 UTC），与本次无关。
+- 回滚：compose 改回 `:internal-custom-20261013-bd8600f` 后同一 `up -d` 命令；或只关掉 channel 44 的开关。
