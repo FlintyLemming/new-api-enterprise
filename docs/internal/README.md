@@ -40,6 +40,7 @@
 | `feature/usage-stats-cache-caliber` | 用量统计 `prompt_tokens` 缓存口径全局归一化开关（不影响计费） | `internal-only` | 未提交 | `e6b8fc10d` | 2026-09-12 | [设计](../superpowers/specs/2026-09-09-usage-stats-cache-normalization-design.md) |
 | —（直接提交） | 镜像发布 workflow 改推本仓库 GHCR | `internal-only` | 不适用 | `556468079` | 2026-09-14 | [部署台账 §12](patches/2026-08-15-langfuse-local-deployment.md#12-2026-09-14-镜像发布改走-ghcr重置卡持卡人用户名) |
 | —（直接提交） | 渠道开关：Claude Messages 对话内 system 消息内联为 `<system-reminder>`，保住 DeepSeek 等上游前缀缓存 | `internal-only` | 未提交 | 见 git log | 2026-11-05 | [详情](patches/feat-inline-claude-system-messages.md) |
+| —（直接提交） | 流式：客户端在协议终止事件（如 `message_stop`）之后、上游 EOF 之前断开时按 `eof` 结束，不再误记 `client_gone` | `upstream-pending` | 未提交 | 见 git log | 2026-11-05 | [详情](patches/fix-stream-client-close-after-complete.md) |
 
 ## 已归档
 

@@ -304,7 +304,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	case <-c.Request.Context().Done():
 		// 客户端断开：立即 cleanup 关闭上游 resp.Body，解除 scanner 阻塞并让上游停止生成，
 		// 避免为已放弃的请求继续消费上游 token。
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		if info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) {
+			// 已转发协议终止事件（如 Anthropic message_stop）后客户端先于上游 EOF 断开：
+			// 客户端已收到完整响应，按正常 EOF 结束，不记为 client_gone。
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+		} else {
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+		}
 	}
 
 	cleanup()

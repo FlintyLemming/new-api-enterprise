@@ -283,6 +283,68 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 	assert.NotContains(t, body, "second")
 }
 
+// A client that hangs up after the protocol's terminal event (e.g. Anthropic
+// message_stop) but before the upstream closes the connection received the
+// whole response; it must not be recorded as client_gone.
+func TestStreamScannerHandler_ClientCloseAfterCompletedIsNormalEnd(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pr.Close()
+		_ = pw.Close()
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx)
+
+	resp := &http.Response{Body: pr}
+	info := &relaycommon.RelayInfo{
+		DisablePing:  true,
+		ChannelMeta:  &relaycommon.ChannelMeta{},
+		StreamStatus: relaycommon.NewStreamStatus(),
+	}
+
+	stopHandled := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+			_ = StringData(c, data)
+			if data == "message_stop" {
+				info.StreamStatus.MarkCompleted()
+				close(stopHandled)
+			}
+		})
+		close(done)
+	}()
+
+	_, err := fmt.Fprint(pw, "data: message_stop\n")
+	require.NoError(t, err)
+
+	select {
+	case <-stopHandled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal chunk")
+	}
+
+	// Upstream has not closed yet; the client disconnects first.
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return after client disconnect")
+	}
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonEOF, info.StreamStatus.EndReason)
+	assert.Nil(t, info.StreamStatus.EndError)
+	assert.True(t, info.StreamStatus.IsNormalEnd())
+	assert.Equal(t, string(relaycommon.ResponseOutcomeCompleted), info.StreamStatus.ResponseOutcome())
+}
+
 // ---------- Ping tests ----------
 
 func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
