@@ -60,6 +60,7 @@ const CONFIGURATION_BLOCKS = {
       'force_format',
       'thinking_to_content',
       'strip_anthropic_billing_header',
+      'inline_claude_system_messages',
       'pass_through_body_enabled',
       'responses_websocket_enabled',
       'ollama_openai_chat',
@@ -156,6 +157,7 @@ export function getChannelConfigurationState(
       (values.type === 1 && values.force_format) ||
       values.thinking_to_content ||
       values.strip_anthropic_billing_header ||
+      values.inline_claude_system_messages ||
       (values.type !== CHANNEL_TYPE_ADVANCED_CUSTOM &&
         values.pass_through_body_enabled) ||
       (supportsResponsesWebSocket(values.type) &&

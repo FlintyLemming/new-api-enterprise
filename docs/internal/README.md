@@ -39,6 +39,7 @@
 | `feat/subscription-reset-card` | 订阅重置卡：管理员发卡、用户自助清零当前周期用量（含 2026-09-14 持卡人用户名列） | `internal-only` | 未提交 | 线性合入，tip `496f1674e`；`fcf8e49a1` | 2026-09-12 | [设计](../superpowers/specs/2026-09-11-subscription-reset-card-design.md) |
 | `feature/usage-stats-cache-caliber` | 用量统计 `prompt_tokens` 缓存口径全局归一化开关（不影响计费） | `internal-only` | 未提交 | `e6b8fc10d` | 2026-09-12 | [设计](../superpowers/specs/2026-09-09-usage-stats-cache-normalization-design.md) |
 | —（直接提交） | 镜像发布 workflow 改推本仓库 GHCR | `internal-only` | 不适用 | `556468079` | 2026-09-14 | [部署台账 §12](patches/2026-08-15-langfuse-local-deployment.md#12-2026-09-14-镜像发布改走-ghcr重置卡持卡人用户名) |
+| —（直接提交） | 渠道开关：Claude Messages 对话内 system 消息内联为 `<system-reminder>`，保住 DeepSeek 等上游前缀缓存 | `internal-only` | 未提交 | 见 git log | 2026-11-05 | [详情](patches/feat-inline-claude-system-messages.md) |
 
 ## 已归档
 

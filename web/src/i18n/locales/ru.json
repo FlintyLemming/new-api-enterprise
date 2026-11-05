@@ -6047,6 +6047,8 @@
     "Streaming": "Стриминг",
     "String Replace": "Замена строки",
     "Strip Claude client billing headers": "Удалять заголовки биллинга клиента Claude",
+    "Inline Claude conversation system messages": "Встраивать system-сообщения диалога Claude",
+    "Moves system messages inside a Claude Messages conversation into <system-reminder> text of the preceding user message, so upstreams whose chat template hoists system messages to the prompt start keep their prefix cache.": "Переносит system-сообщения внутри диалога Claude Messages в текст <system-reminder> предыдущего user-сообщения, чтобы апстримы, чей chat template поднимает system-сообщения в начало, сохраняли кэш префикса.",
     "Strip {{affix}}": "Убрать {{affix}}",
     "Strip prefix": "Убрать префикс",
     "Strip suffix": "Убрать суффикс",

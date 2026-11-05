@@ -85,6 +85,7 @@ export interface ChannelSettings {
   force_format?: boolean
   thinking_to_content?: boolean
   strip_anthropic_billing_header?: boolean
+  inline_claude_system_messages?: boolean
   proxy?: string
   pass_through_body_enabled?: boolean
   responses_websocket_enabled?: boolean

@@ -6047,6 +6047,8 @@
     "Streaming": "Truyền liên tục",
     "String Replace": "Thay thế chuỗi",
     "Strip Claude client billing headers": "Gỡ header thanh toán của client Claude",
+    "Inline Claude conversation system messages": "Nhúng tin nhắn system trong hội thoại Claude",
+    "Moves system messages inside a Claude Messages conversation into <system-reminder> text of the preceding user message, so upstreams whose chat template hoists system messages to the prompt start keep their prefix cache.": "Chuyển tin nhắn system giữa hội thoại Claude Messages thành văn bản <system-reminder> trong tin nhắn user trước đó, để upstream có chat template đưa tin nhắn system lên đầu vẫn giữ được prefix cache.",
     "Strip {{affix}}": "Bỏ {{affix}}",
     "Strip prefix": "Bỏ tiền tố",
     "Strip suffix": "Bỏ hậu tố",

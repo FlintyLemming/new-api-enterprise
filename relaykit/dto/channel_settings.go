@@ -19,6 +19,11 @@ type ChannelSettings struct {
 	// x-anthropic-billing-header system prefix when flattening Claude
 	// Messages system blocks into one OpenAI chat system string.
 	StripAnthropicBillingHeader bool `json:"strip_anthropic_billing_header,omitempty"`
+	// InlineClaudeSystemMessages rewrites mid-conversation Claude Messages
+	// `role: "system"` messages into <system-reminder> text in the preceding
+	// user message, so upstream chat templates that hoist system messages to
+	// the prompt start (DeepSeek on vLLM/SGLang) keep a stable prefix cache.
+	InlineClaudeSystemMessages bool `json:"inline_claude_system_messages,omitempty"`
 	// CachePromptTokenSemantic declares whether the upstream provider counts
 	// cached prompt tokens inside usage.prompt_tokens. Empty means auto-detect
 	// from usage semantic; "prompt_includes_cache"/"prompt_excludes_cache"

@@ -22,6 +22,12 @@
    - 只影响发给非 Claude 上游的 system 正文；OpenRouter 上 `anthropic/claude-*` 的分块路径不过滤；不改 New API 计费，也不改客户端请求
    - 在 Claude Code 对接本地 DeepSeek 等非 Claude 上游时建议开启，避免变化的计费头打断前缀缓存
 
+5. inline_claude_system_messages
+   - 把 Claude Messages 对话中途的 `role: "system"` 消息改写为 `<system-reminder>` 文本块，追加到前一条 user 消息末尾；前一条不是 user 时单独成为一条 user 消息；没有文本的 system 消息（只带 `output_config.effort`）直接丢弃
+   - 类型为布尔值，默认 false / 省略
+   - 对所有接收 Claude Messages 请求的渠道生效（原生透传和转 OpenAI chat 都在转换前改写）；`pass_through_body` 不处理；不改 New API 计费，也不改客户端请求原文
+   - Claude Code 会在对话中插入 `<total_tokens>…tokens left</total_tokens>`、`# Environment update` 等 system 消息；DeepSeek 等 chat template 会把所有 system 消息提到 prompt 开头，导致每轮整段历史的前缀缓存失效。对接这类 vLLM / SGLang 上游时建议开启
+
 --------------------------------------------------------------
 
 ## JSON 格式示例
@@ -33,6 +39,7 @@
     "force_format": true,
     "thinking_to_content": true,
     "strip_anthropic_billing_header": true,
+    "inline_claude_system_messages": true,
     "proxy": "socks5://proxy.example:1080"
 }
 ```

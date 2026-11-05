@@ -6047,6 +6047,8 @@
     "Streaming": "流式输出",
     "String Replace": "字符串替换",
     "Strip Claude client billing headers": "剥离 Claude 客户端计费头",
+    "Inline Claude conversation system messages": "内联 Claude 对话中的 system 消息",
+    "Moves system messages inside a Claude Messages conversation into <system-reminder> text of the preceding user message, so upstreams whose chat template hoists system messages to the prompt start keep their prefix cache.": "把 Claude Messages 对话中途的 system 消息改写为前一条 user 消息里的 <system-reminder> 文本，避免上游 chat template 把 system 消息提到开头导致前缀缓存失效。",
     "Strip {{affix}}": "去掉 {{affix}}",
     "Strip prefix": "去掉前缀",
     "Strip suffix": "去掉后缀",

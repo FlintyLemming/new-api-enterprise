@@ -297,6 +297,7 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'strip_anthropic_billing_header',
+  'inline_claude_system_messages',
   'proxy',
   'http_protocol',
   'http2_connection_shards',
@@ -1911,6 +1912,34 @@ export function ChannelMutateDrawer({
             <FormLabel>{t('Thinking to Content')}</FormLabel>
             <FormDescription>
               {t('Convert reasoning_content to <think> tag in content')}
+            </FormDescription>
+          </div>
+          <FormControl>
+            <Switch
+              disabled={sensitiveLocked}
+              checked={field.value}
+              onCheckedChange={field.onChange}
+            />
+          </FormControl>
+        </FormItem>
+      )}
+    />
+  )
+
+  const inlineSystemMessagesFields = (
+    <FormField
+      control={form.control}
+      name='inline_claude_system_messages'
+      render={({ field }) => (
+        <FormItem className='flex items-center justify-between px-4 py-3'>
+          <div className='space-y-0.5'>
+            <FormLabel>
+              {t('Inline Claude conversation system messages')}
+            </FormLabel>
+            <FormDescription>
+              {t(
+                'Moves system messages inside a Claude Messages conversation into <system-reminder> text of the preceding user message, so upstreams whose chat template hoists system messages to the prompt start keep their prefix cache.'
+              )}
             </FormDescription>
           </div>
           <FormControl>
@@ -4778,6 +4807,7 @@ export function ChannelMutateDrawer({
                 {ollamaOpenAIChatFields}
                 {thinkingFields}
                 {stripBillingHeaderFields}
+                {inlineSystemMessagesFields}
                 {currentType !== CHANNEL_TYPE_ADVANCED_CUSTOM &&
                   passthroughFields}
                 {systemPromptFields}
