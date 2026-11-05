@@ -316,3 +316,12 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 验证：zhangran 部署后暂无流量。取其会话 `6ba681da` 相邻三轮真实请求（Langfuse `events_full`），经 `InlineSystemMessages()` 改写后直连 vLLM：第 2、3 轮 cache_read 98304 / 99840，creation 1536 / 4288（改写前生产上同类请求 read ≈ 5.5k、creation ≈ 9 万+）。
 - 同期 mucr（user 422）`client_gone` 增多始于 10:20 UTC，早于本次切换（10:53 UTC），与本次无关。
 - 回滚：compose 改回 `:internal-custom-20261013-bd8600f` 后同一 `up -d` 命令；或只关掉 channel 44 的开关。
+
+
+## 16. 2026-11-05 流式"完成后客户端断开"误记 client_gone 修复上线
+
+- 源码：`ea09002bc`（[fix-stream-client-close-after-complete](fix-stream-client-close-after-complete.md)），已推送 GitHub `enterprise` 的 `internal-custom`。
+- 构建：[run 42044126246](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42044126246)，四个 job 全部成功，产出 `ghcr.io/flintylemming/new-api-enterprise:internal-custom-20261105-ea09002`（本地 image `sha256:fcc226a16131f4947561a533c15e716398c5fc075c30b0423733f4800847b63f`，revision 标签 `ea09002bc`）。
+- 无数据库迁移，未做彩排。compose 备份为 `compose.yaml.bak-20261105-stream-client-close`，只改了 image 行。14:28:25–14:29:09 UTC 执行 `docker compose up -d --no-deps --wait new-api`，结果 healthy，`/api/status` 版本为 `internal-custom-20261105-ea09002`。
+- 验证：切换后约 5 分钟内，mucr 的 49 条流式消费日志全部是 `end_reason=eof`、`status=ok`、`response_status=completed`，全站流式日志没有出现 `client_gone`。切换前同一用户约 30% 记为 `client_gone`。cleanup 关闭上游连接时产生的 `scanner error: use of closed network connection` 仍会以 ERR 级别打印，这是预期行为。
+- 回滚：把 compose 改回 `:internal-custom-20261105-62c9e13`，再执行同一条 `up -d` 命令。
