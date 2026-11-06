@@ -336,3 +336,11 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 构建结果（tag 指向 `df98e8f7d`）：Docker [run 42186516933](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42186516933) 成功，耗时 6 分 27 秒，`:v1.0.0-rc.44-internal.20261106` 多架构清单 `sha256:5a5ff0f37b17dcd4118ee1f9ef10dbe6ea85c8daab5bfb8192f2825ac21a6b16`。Release [run 42186516864](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42186516864) 三个 job 都成功，其中 Linux 跑了 27 分 50 秒。
 - 同日另打了浮动 tag `internal-custom`，含义是“修改版的最新版”，当前指向 `0c5d6aebc`（比上面的 tag 多一个根 README 文档提交）。Docker [run 42187464544](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42187464544) 与 Release [run 42187464626](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42187464626) 都成功。`:internal-custom` 与 `:latest` 的多架构清单都是 `sha256:ba616ea797edcb97e8575c4d7c1ff0e33584e1ce0c62c3d30ce61367dab98c76`。
 - **这个 tag 与分支同名**：本地推送要写全 ref，推分支用 `git push enterprise refs/heads/internal-custom`；更新 tag 用 `git tag -f internal-custom refs/heads/internal-custom && git push -f enterprise refs/tags/internal-custom`。手动分支构建也会写 `:internal-custom`，最后跑完的那次构建会覆盖前一次。
+
+
+## 18. 2026-11-06 8850 改跑浮动 tag `:internal-custom`
+
+- 镜像：`ghcr.io/flintylemming/new-api-enterprise:internal-custom`，是 §17 浮动 tag 的构建（多架构清单 `sha256:ba616ea797edcb97e8575c4d7c1ff0e33584e1ce0c62c3d30ce61367dab98c76`，本地 image `sha256:de453184bfed271ab23193e9173358a10cb3d9685e6c626dc77aa1895e632981`，revision `0c5d6aebc`）。代码与 §16 的 `ea09002` 相同，只多了文档提交。
+- 无数据库迁移，未做彩排。compose 备份为 `compose.yaml.bak-20261106-internal-custom-tag`，只改了 image 行。`pull_policy: never` 保持不变，所以 tag 移动后要先手动 `docker pull ghcr.io/flintylemming/new-api-enterprise:internal-custom`，再执行 `docker compose up -d --no-deps --wait new-api`。本次 08:45:45–08:46:30 UTC 切换，结果 healthy，重启次数 0。
+- 验证：`/api/status` 版本为 `internal-custom`（取 tag 名，不再带日期和 sha，要靠 image revision 标签确认具体版本），首页 HTTP 200。切换后 channel 44 出现的 `DeepSeek V4.1 supports text and image content only; got 'tool_reference'`（user 420）在切换前就以每小时约 10–20 次的频率存在，与本次无关。
+- 回滚：把 compose 改回 `:internal-custom-20261105-ea09002`，再执行同一条 `up -d` 命令。
