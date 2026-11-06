@@ -325,3 +325,12 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 无数据库迁移，未做彩排。compose 备份为 `compose.yaml.bak-20261105-stream-client-close`，只改了 image 行。14:28:25–14:29:09 UTC 执行 `docker compose up -d --no-deps --wait new-api`，结果 healthy，`/api/status` 版本为 `internal-custom-20261105-ea09002`。
 - 验证：切换后约 5 分钟内，mucr 的 49 条流式消费日志全部是 `end_reason=eof`、`status=ok`、`response_status=completed`，全站流式日志没有出现 `client_gone`。切换前同一用户约 30% 记为 `client_gone`。cleanup 关闭上游连接时产生的 `scanner error: use of closed network connection` 仍会以 ERR 级别打印，这是预期行为。
 - 回滚：把 compose 改回 `:internal-custom-20261105-62c9e13`，再执行同一条 `up -d` 命令。
+
+
+## 17. 2026-11-06 打 tag `v1.0.0-rc.44-internal.20261106`
+
+- 目的：把 §15、§16 两项改动固化为一个有版本号的 tag，走 tag 触发的 CI（此前两次都是手动分支构建）。
+- 源码：`internal-custom` 上包含 `62c9e13c8`、`ea09002bc` 及本节台账的提交，tag 为轻量 tag，已推送 GitHub `enterprise`。
+- 触发的 workflow：`Publish Docker image (Multi-arch)`（产出 `ghcr.io/flintylemming/new-api-enterprise:v1.0.0-rc.44-internal.20261106` 与 `:latest`，外加每架构 `-amd64` / `-arm64`）和 `Release (Linux, macOS, Windows)`（GitHub Release 附二进制）。tag 名含 `-`，`electron-build` 不触发。
+- 与 8850 当前运行的 `:internal-custom-20261105-ea09002` 代码相同（差异仅为 `docs/internal/`），本次不切换 8850 的镜像。
+- 构建结果：待 CI 完成后补记 run 链接与 digest。

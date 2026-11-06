@@ -6,6 +6,8 @@
 
 2026-10-13 同步至 `v1.0.0-rc.44`（`633b4c5b1`，GitHub Latest release），合并提交 `04f2b55c5`，详见下方 [rc.44 同步记录](#2026-10-13-同步上游-v100-rc44)。合并前先把本地 `internal-custom` 快进到 `enterprise/internal-custom`（`f8775ede8`，含 2026-09-14 远端会话提交的重置卡持卡人用户名 `286e1bd2c` 与 GHCR 镜像发布 `556468079`），备份为 `backup/internal-custom-before-rc44-20261013`；本地 `main` 快进至该 tag。`internal-custom` 与 `main` 已推送到 GitHub `enterprise`；GitLab 未推送（本机没有可用的 GitLab SSH 凭据）。随后手动触发 GHCR 镜像构建，结果记在[部署台账 §13](patches/2026-08-15-langfuse-local-deployment.md#13-2026-10-13-rc44-镜像构建)。2026-10-15 已部署到 8850（`:internal-custom-20261013-bd8600f`），彩排、切换与验证见[部署台账 §14](patches/2026-08-15-langfuse-local-deployment.md#14-2026-10-15-rc44-镜像上线)。
 
+2026-11-05 在基线上追加两项直接提交并上线 8850：对话内 system 消息内联开关 `62c9e13c8`（[部署台账 §15](patches/2026-08-15-langfuse-local-deployment.md#15-2026-11-05-对话内-system-消息内联开关上线)）与流式"完成后客户端断开"修复 `ea09002bc`（[部署台账 §16](patches/2026-08-15-langfuse-local-deployment.md#16-2026-11-05-流式完成后客户端断开误记-client_gone-修复上线)）。8850 当前运行 `:internal-custom-20261105-ea09002`。2026-11-06 在 `internal-custom` 上打 tag `v1.0.0-rc.44-internal.20261106` 触发 tag 构建，见[部署台账 §17](patches/2026-08-15-langfuse-local-deployment.md#17-2026-11-06-打-tag-v100-rc44-internal20261106)。
+
 上一基线：2026-09-09 同步 `v1.0.0-rc.36`（合并提交 `a72e8c116`，见 [rc.36 同步与数据库验证记录](sync-rc36-2026-09-09.md)），8850 环境此前运行 `new-api:rc36-e6b8fc10d`（[部署台账 §11](patches/2026-08-15-langfuse-local-deployment.md#11-2026-09-12-重置卡--缓存统计口径镜像上线)）。
 
 ## 分支模型
@@ -39,8 +41,8 @@
 | `feat/subscription-reset-card` | 订阅重置卡：管理员发卡、用户自助清零当前周期用量（含 2026-09-14 持卡人用户名列） | `internal-only` | 未提交 | 线性合入，tip `496f1674e`；`fcf8e49a1` | 2026-09-12 | [设计](../superpowers/specs/2026-09-11-subscription-reset-card-design.md) |
 | `feature/usage-stats-cache-caliber` | 用量统计 `prompt_tokens` 缓存口径全局归一化开关（不影响计费） | `internal-only` | 未提交 | `e6b8fc10d` | 2026-09-12 | [设计](../superpowers/specs/2026-09-09-usage-stats-cache-normalization-design.md) |
 | —（直接提交） | 镜像发布 workflow 改推本仓库 GHCR | `internal-only` | 不适用 | `556468079` | 2026-09-14 | [部署台账 §12](patches/2026-08-15-langfuse-local-deployment.md#12-2026-09-14-镜像发布改走-ghcr重置卡持卡人用户名) |
-| —（直接提交） | 渠道开关：Claude Messages 对话内 system 消息内联为 `<system-reminder>`，保住 DeepSeek 等上游前缀缓存 | `internal-only` | 未提交 | 见 git log | 2026-11-05 | [详情](patches/feat-inline-claude-system-messages.md) |
-| —（直接提交） | 流式：客户端在协议终止事件（如 `message_stop`）之后、上游 EOF 之前断开时按 `eof` 结束，不再误记 `client_gone` | `upstream-pending` | 未提交 | 见 git log | 2026-11-05 | [详情](patches/fix-stream-client-close-after-complete.md) |
+| —（直接提交） | 渠道开关：Claude Messages 对话内 system 消息内联为 `<system-reminder>`，保住 DeepSeek 等上游前缀缓存 | `internal-only` | 未提交 | `62c9e13c8` | 2026-11-05 | [详情](patches/feat-inline-claude-system-messages.md) |
+| —（直接提交） | 流式：客户端在协议终止事件（如 `message_stop`）之后、上游 EOF 之前断开时按 `eof` 结束，不再误记 `client_gone` | `upstream-pending` | 未提交 | `ea09002bc` | 2026-11-05 | [详情](patches/fix-stream-client-close-after-complete.md) |
 
 ## 已归档
 
