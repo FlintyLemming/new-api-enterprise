@@ -34,14 +34,20 @@
 7. **渠道缓存语义声明（cache_prompt_token_semantic）**
    渠道级声明上游原始计费中 prompt 缓存的语义口径，作为计费/遥测前置声明供 Langfuse 追踪与统计使用。
 
+8. **对话内 system 消息内联（inline_claude_system_messages）**
+   Claude Code 会在对话中途插入 `role: system` 消息（token 预算、环境更新等），DeepSeek 一类 chat template 会把所有 system 消息提到开头，导致每轮前缀变化、上游前缀缓存整段失效。开启后把对话中途的 system 消息改写为相邻 user 消息里的 `<system-reminder>` 块，保持前缀稳定。
+
 ### 修复与改进
 
-8. **日志耗时毫秒精度**
+9. **日志耗时毫秒精度**
    消费日志记录 `other.duration_ms`（毫秒级），日志表格、详情、移动端卡片和 CSV 导出优先使用它，旧日志回退秒级 `use_time`。
+
+10. **流式「完成后客户端断开」不再误记 client_gone**
+   Anthropic 流没有 `[DONE]`，扫描器要等上游 EOF。客户端在收到 `message_stop` 后、上游 EOF 前断开时，原逻辑记为 `client_gone` / `context canceled`，已完整交付并计费的请求被当作流式错误。现在若响应已完成则按 `eof` 正常结束；终止事件之前的断开仍记 `client_gone`。
 
 ### 构建与发布
 
-9. **镜像发布到本仓库 GHCR**
+11. **镜像发布到本仓库 GHCR**
    `docker-build.yml`（tag 触发）与 `docker-image-branch.yml`（手动指定分支）改推 `ghcr.io/<owner>/<repo>`，使用内置 `GITHUB_TOKEN` 登录，不依赖 Docker Hub secrets。
 
 ## 分支模型
