@@ -370,3 +370,27 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 验证：`/api/pricing` 返回新表达式；02:50 UTC（北京 10:50，工作日）起 llm-prime 消费日志 `matched_tier=peak_standard`。
 - 遗留：7810 最后写入的两个模型倍率（峰值 3）仍在 `model_ratio` 中，表达式计费下不生效。
 - 回滚：用备份恢复两个表达式；如需恢复 7810 改写，把 ratio `enabled` 改回 `true` 并重启 7810。
+
+## 21. 2026-11-09 rc.49 镜像构建与上线
+
+- 构建：`690f79f96` 打轻量 tag `v1.0.0-rc.49-internal.20261109` 推到 `enterprise`，Docker run 42573353388 成功，Release run 42573353427 同时触发。按 `7bbbaf593` 的新流程，`:v1.0.0-rc.49-internal.20261109`、`:internal-custom`、`:latest` 是同一个多架构清单 `sha256:c4a8871986453a1f42472d486e966d484a5c6a0b69f45bbd04d8d297e73760d9`（本地 image `sha256:9330f754d92f…`，revision `690f79f96`）。此前的 `internal-custom` git tag 与同名 Release 已删除，不再使用。
+- 备份目录：`/home/flintylemming/appdata/8850-new-api/backups/rc49-20261109/`（目录 700、文件 600）：`compose.before.yaml`、`containers-before.txt`、`image-before.txt`、PostgreSQL 完整逻辑备份 `postgres-before.dump`（423898039 字节，`pg_restore --list` 927 项）、`schema-before.sql`、`options-before-cc0.sql`（见 §22）。旧镜像在本地另打 tag `:internal-custom-4466951`（`sha256:06c1798ed34b…`，revision `446695161`）。ClickHouse 未导出：rc.45–49 没有改日志库表结构。
+- 彩排：完整备份恢复到 `--internal` 网络里的临时 postgres:15（4 个恢复错误都是授予不存在的 `dsh_ro` 角色，只涉及权限），新镜像连续启动两次，schema 一致；主库变化只有 `quota_data` 新增 `cache_read_tokens` / `cache_creation_tokens`、`tokens` 新增 `allow_user_quota_query`，没有删除约束或索引（`audit_logs` 出现在彩排主库只是因为彩排未配 `LOG_SQL_DSN`）。新镜像与旧镜像在迁移后的库上都 4 秒就绪，`/api/status` 正常，回滚可行。彩排容器和网络已删除。
+- 切换：compose 未改（仍为 `:internal-custom` + `pull_policy: never`）。先 `docker pull ghcr.io/flintylemming/new-api-enterprise:internal-custom`，06:44:42–06:45:18 UTC 执行 `docker compose -f /home/flintylemming/appdata/8850-new-api/compose.yaml up -d --no-deps --wait --wait-timeout 180 new-api`，新容器 `6db3c164c614` healthy，重启 0 次；PostgreSQL、ClickHouse、Redis 未重建。单节点部署，Redis 鉴权缓存 MAC 的 `CRYPTO_SECRET` 一致性问题不适用。
+- 验证：`/api/status` 版本 `v1.0.0-rc.49-internal.20261109`；切换后日志里 `[ERR]` 只有已有的 `deepseek-v4-flash-0731` 无可用渠道。
+- 回滚：`docker tag ghcr.io/flintylemming/new-api-enterprise:internal-custom-4466951 ghcr.io/flintylemming/new-api-enterprise:internal-custom`，再执行同一条 `up -d` 命令。新增的列旧版本会忽略；不要自动恢复数据库备份。
+
+## 22. 2026-11-09 deepseek-flash / llm-prime 表达式加 `cc * 0`
+
+- 原因：rc.49 起 Anthropic 语义下表达式没写 `cc` 时，缓存写入按输入价并入 `p`（见[总台账 rc.49 节](../README.md#2026-11-09-同步上游-v100-rc49)）。8850 上真正走表达式计费的 4 个模型都没写 `cc`；有流量的是 `deepseek-flash` 与 `llm-prime`（渠道 44，渠道 42 已禁用；`glm-5.3-flash` 只在 42 上，`deepseek-v4-flash-0731` 没有渠道）。切换前 7 天内这两个模型 Anthropic 语义请求的缓存写入共约 9.56 亿 tokens，按新规则约多收 1.24 亿额度（约 $247，相应用量的 +0.5% / +1.7%）。决定维持缓存写入免费。
+- 改动：两个模型的四个档位都追加 `+ cc * 0`，其余不变：
+
+  ```
+  is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18 ? (len <= 256000 ? tier("peak_standard", p * 3 + c * 3 + cc * 0) : tier("peak_long_context", p * 10 + c * 10 + cc * 0)) : (len <= 256000 ? tier("off_peak_standard", p * 0.2 + c * 0.2 + cc * 0) : tier("off_peak_long_context", p * 0.4 + c * 0.4 + cc * 0))
+  ```
+
+- 上线前验证：用 rc.49 计费代码计算 8850 一条真实用量（输入 63、缓存读 62464、缓存写 384，峰值档）：不加 `cc` 为 94667，加 `cc * 0` 为 94091，与 rc.44 现网相同；OpenAI 格式用量两者都是 7800。先在回滚事务里对生产库试跑，条件命中 1 行。
+- 执行：备份 options 到 `options-before-cc0.sql` 后，06:45:23 UTC 单事务 `jsonb ||` 只改这两个 key（带「旧值等于 §20 表达式」条件），`/api/pricing` 06:45:54 前生效。
+- 空档：06:44:55 容器启动到表达式生效约 1 分钟，期间 13 个 Anthropic 语义请求的 31.25 万缓存写入 tokens 按峰值输入价计费，上限约 $0.94（约 46.9 万额度），未退还。
+- 验证：生效后的请求 `expr_b64` 含 `cc * 0`；抽查 3 条有缓存写入的 `deepseek-flash` 请求，`quota` 与「（输入 + 缓存读 + 输出）× 峰值价」完全一致（91814 / 99084 / 99633）。
+- 回滚：用 `options-before-cc0.sql` 恢复两个表达式（恢复后 rc.49 会对缓存写入按输入价计费）。

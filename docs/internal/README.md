@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-2026-11-09 同步至 `v1.0.0-rc.49`（`48a6c87f9`），合并提交 `c334b1f5e`，详见下方 [rc.49 同步记录](#2026-11-09-同步上游-v100-rc49)。合并前本地与 `enterprise/internal-custom` 一致（`f475dbbb8`），备份为 `backup/internal-custom-before-rc49-20261109`；本地 `main` 快进至该 tag。随后 `7bbbaf593` 让版本 tag 构建同时推 `:internal-custom` 镜像，不再使用同名 git tag 与 Release（见 rc.49 记录「浮动镜像 tag」）。本次尚未推送、打 tag 或部署。
+2026-11-09 同步至 `v1.0.0-rc.49`（`48a6c87f9`），合并提交 `c334b1f5e`，详见下方 [rc.49 同步记录](#2026-11-09-同步上游-v100-rc49)。合并前本地与 `enterprise/internal-custom` 一致（`f475dbbb8`），备份为 `backup/internal-custom-before-rc49-20261109`；本地 `main` 快进至该 tag。随后 `7bbbaf593` 让版本 tag 构建同时推 `:internal-custom` 镜像，不再使用同名 git tag 与 Release（见 rc.49 记录「浮动镜像 tag」）。同日打 tag `v1.0.0-rc.49-internal.20261109` 并部署到 8850，见[部署台账 §21](patches/2026-08-15-langfuse-local-deployment.md#21-2026-11-09-rc49-镜像构建与上线)；`deepseek-flash` / `llm-prime` 表达式随后加 `cc * 0` 维持缓存写入免费，见[部署台账 §22](patches/2026-08-15-langfuse-local-deployment.md#22-2026-11-09-deepseek-flash--llm-prime-表达式加-cc--0)。
 
 上一基线：2026-10-13 同步至 `v1.0.0-rc.44`（`633b4c5b1`，GitHub Latest release），合并提交 `04f2b55c5`，详见下方 [rc.44 同步记录](#2026-10-13-同步上游-v100-rc44)。合并前先把本地 `internal-custom` 快进到 `enterprise/internal-custom`（`f8775ede8`，含 2026-09-14 远端会话提交的重置卡持卡人用户名 `286e1bd2c` 与 GHCR 镜像发布 `556468079`），备份为 `backup/internal-custom-before-rc44-20261013`；本地 `main` 快进至该 tag。`internal-custom` 与 `main` 已推送到 GitHub `enterprise`；GitLab 未推送（本机没有可用的 GitLab SSH 凭据）。随后手动触发 GHCR 镜像构建，结果记在[部署台账 §13](patches/2026-08-15-langfuse-local-deployment.md#13-2026-10-13-rc44-镜像构建)。2026-10-15 已部署到 8850（`:internal-custom-20261013-bd8600f`），彩排、切换与验证见[部署台账 §14](patches/2026-08-15-langfuse-local-deployment.md#14-2026-10-15-rc44-镜像上线)。
 
