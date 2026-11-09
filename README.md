@@ -26,28 +26,31 @@
 5. **每用户并发客户端 IP 数限制**
    滑动窗口内限制单个用户可同时使用的客户端 IP 数量（relay API），支持全局白名单和按用户覆盖，防止账号被多人共享使用。
 
+6. **中国大陆节假日峰谷计价（`is_workday`）**
+   计费表达式新增 `is_workday(tz)`：法定节假日为非工作日，调休上班日为工作日，其余按周一至周五，可与 `hour()` 组合出"工作日 9–18 点高峰"一类规则。主节点每 6 小时从小米节假日 API 同步日历存入 options，拉取失败保留旧数据（可用 `HOLIDAY_CALENDAR_URL` / `HOLIDAY_CALENDAR_SYNC_ENABLED` 调整）；定价页和可视化编辑器同步支持"工作日状态"条件。
+
 ### 新增渠道开关
 
-6. **剥离 Claude 计费头（strip Claude billing headers）**
+7. **剥离 Claude 计费头（strip Claude billing headers）**
    Claude → 非 Claude 协议转换时，可选择在压平 system 文本时剥离 Claude Code 的计费相关头部，保住前缀缓存命中率。
 
-7. **渠道缓存语义声明（cache_prompt_token_semantic）**
+8. **渠道缓存语义声明（cache_prompt_token_semantic）**
    渠道级声明上游原始计费中 prompt 缓存的语义口径，作为计费/遥测前置声明供 Langfuse 追踪与统计使用。
 
-8. **对话内 system 消息内联（inline_claude_system_messages）**
+9. **对话内 system 消息内联（inline_claude_system_messages）**
    Claude Code 会在对话中途插入 `role: system` 消息（token 预算、环境更新等），DeepSeek 一类 chat template 会把所有 system 消息提到开头，导致每轮前缀变化、上游前缀缓存整段失效。开启后把对话中途的 system 消息改写为相邻 user 消息里的 `<system-reminder>` 块，保持前缀稳定。
 
 ### 修复与改进
 
-9. **日志耗时毫秒精度**
+10. **日志耗时毫秒精度**
    消费日志记录 `other.duration_ms`（毫秒级），日志表格、详情、移动端卡片和 CSV 导出优先使用它，旧日志回退秒级 `use_time`。
 
-10. **流式「完成后客户端断开」不再误记 client_gone**
+11. **流式「完成后客户端断开」不再误记 client_gone**
    Anthropic 流没有 `[DONE]`，扫描器要等上游 EOF。客户端在收到 `message_stop` 后、上游 EOF 前断开时，原逻辑记为 `client_gone` / `context canceled`，已完整交付并计费的请求被当作流式错误。现在若响应已完成则按 `eof` 正常结束；终止事件之前的断开仍记 `client_gone`。
 
 ### 构建与发布
 
-11. **镜像发布到本仓库 GHCR**
+12. **镜像发布到本仓库 GHCR**
    `docker-build.yml`（tag 触发）与 `docker-image-branch.yml`（手动指定分支）改推 `ghcr.io/<owner>/<repo>`，使用内置 `GITHUB_TOKEN` 登录，不依赖 Docker Hub secrets。
 
 ## 分支模型
