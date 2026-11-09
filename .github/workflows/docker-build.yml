@@ -140,12 +140,15 @@ jobs:
             ${IMAGE}:${TAG}-amd64 \
             ${IMAGE}:${TAG}-arm64
 
-      - name: Create & push manifest (latest)
+      # internal-custom 是"修改版最新版"的浮动镜像 tag，随每个版本 tag 一起更新，
+      # 不再靠推同名 git tag 触发（那样会多出同名 Release）。
+      - name: Create & push manifest (latest, internal-custom)
         run: |
           docker buildx imagetools create \
             -t ${IMAGE}:latest \
-            ${IMAGE}:latest-amd64 \
-            ${IMAGE}:latest-arm64
+            -t ${IMAGE}:internal-custom \
+            ${IMAGE}:${TAG}-amd64 \
+            ${IMAGE}:${TAG}-arm64
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -154,6 +157,7 @@ jobs:
         run: |
           cosign sign --yes ${IMAGE}:${TAG}
           cosign sign --yes ${IMAGE}:latest
+          cosign sign --yes ${IMAGE}:internal-custom
 
       - name: Manifest summary
         run: |
