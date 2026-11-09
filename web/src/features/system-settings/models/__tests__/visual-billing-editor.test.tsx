@@ -980,3 +980,28 @@ test('preserves legacy numeric drafts when editing an independent time multiplie
   fireEvent.blur(start)
   expect(start).toHaveValue(0)
 })
+
+test('edits a workday condition through its value selector without a comparison operator', async () => {
+  const workdayExpression =
+    'is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18 ? tier("peak", p * 3) : tier("off_peak", p * 1.5)'
+  const onBillingExprChange = vi.fn()
+  render(
+    <TieredPricingEditor
+      billingExpr={workdayExpression}
+      requestRuleExpr=''
+      onBillingExprChange={onBillingExprChange}
+      onRequestRuleExprChange={vi.fn()}
+    />
+  )
+  const workdayValue = screen.getByRole('combobox', { name: 'Condition value' })
+  expect(workdayValue).toHaveTextContent('Workdays')
+  expect(
+    screen.queryAllByRole('combobox', { name: 'Comparison operator' })
+  ).toHaveLength(2)
+  const user = userEvent.setup()
+  await user.click(workdayValue)
+  await user.click(screen.getByRole('option', { name: 'Non-workdays' }))
+  expect(onBillingExprChange).toHaveBeenLastCalledWith(
+    workdayExpression.replace('is_workday', '!is_workday')
+  )
+})

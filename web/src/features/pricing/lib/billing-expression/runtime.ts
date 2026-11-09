@@ -1,3 +1,4 @@
+import { isWorkdayOn } from './holiday-calendar'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -20,6 +21,7 @@ import { compileBillingExpression } from './parser'
 import {
   BillingExpressionError,
   TIME_FUNCTIONS,
+  WORKDAY_FUNCTION,
   expressionFailure,
   type BillingEvaluationResult,
   type BillingRequestRule,
@@ -30,6 +32,8 @@ import {
 } from './types'
 
 type RuntimeValue = { value: unknown; integer?: boolean }
+/** Local date and time in a billing timezone; `year` keys the holiday calendar. */
+export type ZonedBillingTime = Record<TimeFunction, number> & { year: number }
 
 /** The supported, deterministic subset of GJSON paths (not JavaScript property access). */
 export function readRequestPath(body: unknown, rawPath: string): unknown {
@@ -113,10 +117,7 @@ function billingString(value: unknown, depth = 0): string {
   return String(value)
 }
 
-export function timeInBillingZone(
-  now: Date,
-  zone: string
-): Record<TimeFunction, number> {
+export function timeInBillingZone(now: Date, zone: string): ZonedBillingTime {
   if (!Number.isFinite(now.getTime())) {
     throw new BillingExpressionError({
       code: 'type',
@@ -140,6 +141,7 @@ export function timeInBillingZone(
       timeZone: timezone,
       calendar: 'gregory',
       numberingSystem: 'latn',
+      year: 'numeric',
       hourCycle: 'h23',
       hour: 'numeric',
       minute: 'numeric',
@@ -156,6 +158,7 @@ export function timeInBillingZone(
     }
   } catch {
     return {
+      year: now.getUTCFullYear(),
       hour: now.getUTCHours(),
       minute: now.getUTCMinutes(),
       weekday: now.getUTCDay(),
@@ -167,6 +170,7 @@ export function timeInBillingZone(
     formatter.formatToParts(now).map((part) => [part.type, part.value])
   )
   return {
+    year: Number(parts.year),
     hour: Number(parts.hour),
     minute: Number(parts.minute),
     weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
@@ -183,7 +187,7 @@ class BillingRuntime {
   billingUnit: 'token' | 'request' = 'token'
   fixedPrice?: number
   private readonly now: Date
-  private readonly timeValues = new Map<string, Record<TimeFunction, number>>()
+  private readonly timeValues = new Map<string, ZonedBillingTime>()
   private readonly headers = new Map<string, string>()
   private depth = 0
 
@@ -501,7 +505,11 @@ class BillingRuntime {
       case 'ceil':
         return { value: Math.ceil(this.numeric(args[0]).value) }
     }
-    if (!(TIME_FUNCTIONS as readonly string[]).includes(node.name)) {
+    const isWorkday = node.name === WORKDAY_FUNCTION
+    if (
+      !isWorkday &&
+      !(TIME_FUNCTIONS as readonly string[]).includes(node.name)
+    ) {
       throw new BillingExpressionError({
         code: 'unsupported',
         detail: node.name,
@@ -513,6 +521,7 @@ class BillingRuntime {
       values = timeInBillingZone(this.now, zone)
       this.timeValues.set(zone, values)
     }
+    if (isWorkday) return { value: isWorkdayOn(values) }
     return { value: values[node.name as TimeFunction], integer: true }
   }
 }

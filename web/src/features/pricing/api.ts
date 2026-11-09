@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type { PricingData } from './types'
 
@@ -28,4 +29,17 @@ import type { PricingData } from './types'
 export async function getPricing(): Promise<PricingData> {
   const res = await api.get('/api/pricing')
   return res.data
+}
+
+// Stored mainland China holiday calendar read by is_workday(); empty when the
+// server has not synced one yet.
+export async function getHolidayCalendar(): Promise<string> {
+  // Public, revalidated with ETag like /api/notice, so drop the global no-store.
+  const res = await api.get('/api/holiday_calendar', {
+    headers: { 'Cache-Control': null },
+  })
+  const body = requireServerSuccess(
+    res.data as { success: boolean; data?: string }
+  )
+  return body.data ?? ''
 }

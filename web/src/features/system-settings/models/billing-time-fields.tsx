@@ -32,6 +32,7 @@ import {
   COMMON_TIMEZONES,
   TIME_FUNCS,
 } from '@/features/pricing/lib/billing-expr'
+import { WORKDAY_FUNCTION } from '@/features/pricing/lib/billing-expression/types'
 import type { VisualComparison } from '@/features/pricing/lib/billing-expression/visual'
 import { toIntlLocale } from '@/i18n/languages'
 
@@ -43,6 +44,7 @@ const PROBE_LABELS = {
   weekday: 'Weekday',
   month: 'Month number',
   day: 'Day of month',
+  is_workday: 'Workday status',
   p: 'Billable input tokens',
   c: 'Billable output tokens',
   len: 'Full input length',
@@ -52,13 +54,18 @@ export function BillingTimeProbeFields(props: {
   probe: VisualComparison['probe']
   timezone: string
   includeTokens?: boolean
+  /** Only the pricing-branch editor can express is_workday(). */
+  includeWorkday?: boolean
   invalidTimezone?: boolean
   onChange: (probe: VisualComparison['probe'], timezone: string) => void
 }) {
   const { t } = useTranslation()
   const probes: VisualComparison['probe'][] = [...TIME_FUNCS]
+  if (props.includeWorkday) probes.push(WORKDAY_FUNCTION)
   if (props.includeTokens) probes.push('len', 'p', 'c')
-  const isTime = (TIME_FUNCS as readonly string[]).includes(props.probe)
+  const isTime =
+    props.probe === WORKDAY_FUNCTION ||
+    (TIME_FUNCS as readonly string[]).includes(props.probe)
   const zones = COMMON_TIMEZONES.map((zone) => ({
     value: zone.value,
     label: zone.value,
@@ -122,6 +129,35 @@ export function BillingConditionValueInput(props: {
   probe?: VisualComparison['probe']
 }) {
   const { t, i18n } = useTranslation()
+  if (props.probe === WORKDAY_FUNCTION) {
+    const options = [
+      { value: '1', label: t('Workdays') },
+      { value: '0', label: t('Non-workdays') },
+    ]
+    return (
+      <Select
+        items={options}
+        value={props.value}
+        onValueChange={(value) => value !== null && props.onChange(value)}
+      >
+        <SelectTrigger
+          size='sm'
+          className='w-32'
+          aria-label={props.label ?? t('Condition value')}
+          aria-invalid={props.invalid || undefined}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  }
   if (
     props.probe === 'weekday' &&
     !props.normalizeNumberDrafts &&

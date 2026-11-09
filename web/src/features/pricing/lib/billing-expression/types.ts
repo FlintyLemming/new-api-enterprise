@@ -40,6 +40,13 @@ export const TIME_FUNCTIONS = [
   'day',
 ] as const
 export type TimeFunction = (typeof TIME_FUNCTIONS)[number]
+/** Calendar probes resolved from the server-provided holiday calendar. */
+export const WORKDAY_FUNCTION = 'is_workday'
+/** Every function whose result depends on the current time. */
+export const TIME_DEPENDENT_FUNCTIONS: readonly string[] = [
+  ...TIME_FUNCTIONS,
+  WORKDAY_FUNCTION,
+]
 export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   tier: 2,
   fixed: 1,
@@ -52,6 +59,7 @@ export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   weekday: 1,
   month: 1,
   day: 1,
+  is_workday: 1,
   min: 2,
   max: 2,
   abs: 1,

@@ -25,10 +25,15 @@ import zh from '@/i18n/locales/zh.json'
 import contract from '../../../../../../pkg/billingexpr/testdata/frontend_simulation.json'
 import {
   combineBillingExpr,
+  getCurrentTimePricingTiers,
   splitBillingExprAndRequestRules,
 } from '../billing-expr'
 import { formatBillingCondition } from '../billing-expression/condition-display'
 import { readTokenTierChain } from '../billing-expression/display'
+import {
+  clearHolidayCalendar,
+  setHolidayCalendar,
+} from '../billing-expression/holiday-calendar'
 import { compileBillingExpression } from '../billing-expression/parser'
 import {
   evaluateBillingExpression,
@@ -270,27 +275,27 @@ describe('local billing expression evaluation', () => {
     [
       '2026-01-31T16:05:00Z',
       'Asia/Shanghai',
-      { hour: 0, minute: 5, weekday: 0, month: 2, day: 1 },
+      { year: 2026, hour: 0, minute: 5, weekday: 0, month: 2, day: 1 },
     ],
     [
       '2026-03-08T06:59:00Z',
       'America/New_York',
-      { hour: 1, minute: 59, weekday: 0, month: 3, day: 8 },
+      { year: 2026, hour: 1, minute: 59, weekday: 0, month: 3, day: 8 },
     ],
     [
       '2026-03-08T07:00:00Z',
       'America/New_York',
-      { hour: 3, minute: 0, weekday: 0, month: 3, day: 8 },
+      { year: 2026, hour: 3, minute: 0, weekday: 0, month: 3, day: 8 },
     ],
     [
       '2026-09-07T01:02:00Z',
       '',
-      { hour: 1, minute: 2, weekday: 1, month: 9, day: 7 },
+      { year: 2026, hour: 1, minute: 2, weekday: 1, month: 9, day: 7 },
     ],
     [
       '2026-09-07T01:02:00Z',
       'Invalid/Zone',
-      { hour: 1, minute: 2, weekday: 1, month: 9, day: 7 },
+      { year: 2026, hour: 1, minute: 2, weekday: 1, month: 9, day: 7 },
     ],
   ])('resolves the full local date at %s in %s', (now, zone, expected) => {
     expect(timeInBillingZone(new Date(now), zone)).toEqual(expected)
@@ -507,5 +512,105 @@ describe('visual billing document', () => {
         'hour("UTC") > 9 ? max(p * 2, 1) : tier("off", p * 1)'
       )
     ).toBeNull()
+  })
+})
+
+// 2026 entry as published by the Xiaomi holiday API (day-of-year numbers).
+const holiday2026 =
+  '{"holiday":[{"year":2026,"workday":[4,45,59,129,263,283],"freeday":[1,2,3,46,47,48,49,50,51,52,53,54,94,95,96,121,122,123,124,125,170,171,172,268,269,270,274,275,276,277,278,279,280]}]}'
+const workdayExpression =
+  'is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18 ? tier("peak", p * 3) : tier("off_peak", p * 1.5)'
+
+describe('mainland China workday pricing', () => {
+  afterEach(() => clearHolidayCalendar())
+
+  test.each([
+    ['2026-02-14T10:00:00+08:00', 'peak', 300],
+    ['2026-02-16T10:00:00+08:00', 'off_peak', 150],
+    ['2026-03-02T10:00:00+08:00', 'peak', 300],
+    ['2026-03-07T10:00:00+08:00', 'off_peak', 150],
+    ['2026-01-04T01:00:00Z', 'peak', 300],
+  ])(
+    'follows official holidays and adjusted workdays at %s',
+    (now, matchedTier, cost) => {
+      setHolidayCalendar(holiday2026)
+      expect(
+        evaluateBillingExpression(workdayExpression, {
+          now: new Date(now),
+          tokens: { p: 100 },
+        })
+      ).toMatchObject({ status: 'success', matchedTier, cost })
+    }
+  )
+
+  test('uses Monday to Friday when the server has no calendar', () => {
+    setHolidayCalendar('')
+    expect(
+      evaluateBillingExpression(workdayExpression, {
+        now: new Date('2026-02-16T10:00:00+08:00'),
+        tokens: { p: 100 },
+      })
+    ).toMatchObject({ status: 'success', matchedTier: 'peak' })
+  })
+
+  test('lists every tier instead of guessing the current one before the calendar loads', () => {
+    const now = new Date('2026-03-02T10:00:00+08:00')
+    expect(
+      evaluateBillingExpression(workdayExpression, { now, tokens: { p: 100 } })
+    ).toMatchObject({ status: 'unsupported' })
+    expect(getCurrentTimePricingTiers(workdayExpression, now)).toBeNull()
+
+    setHolidayCalendar(holiday2026)
+    expect(
+      getCurrentTimePricingTiers(workdayExpression, now)?.map(
+        (tier) => tier.label
+      )
+    ).toEqual(['peak'])
+  })
+
+  test('describes workday conditions without exposing source code', async () => {
+    const translations = createInstance()
+    await translations.init({ lng: 'zh', resources: { zh } })
+    expect(
+      formatBillingCondition(
+        'is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18',
+        translations.t,
+        'zh'
+      )
+    ).toBe('工作日 09:00至18:00（Asia/Shanghai）')
+    expect(
+      formatBillingCondition('!is_workday("UTC")', translations.t, 'zh')
+    ).toBe('非工作日（UTC）')
+  })
+
+  test('round-trips a non-workday branch and serializes an edited workday value', () => {
+    const source =
+      '!is_workday("Asia/Shanghai") ? tier("off", p * 1) : tier("on", p * 2)'
+    const document = parseVisualBillingDocument(source)
+    assert(document)
+    expect(serializeVisualBillingDocument(document)).toEqual({
+      ok: true,
+      source,
+    })
+    if (
+      document.root.kind !== 'branch' ||
+      document.root.condition.kind !== 'comparison'
+    ) {
+      throw new Error('Expected a workday comparison')
+    }
+    expect(document.root.condition).toMatchObject({
+      probe: 'is_workday',
+      timezone: 'Asia/Shanghai',
+      value: '0',
+    })
+    document.root.condition.value = '1'
+    expect(serializeVisualBillingDocument(document)).toEqual({
+      ok: true,
+      source: source.replace('!is_workday', 'is_workday'),
+    })
+    document.root.condition.value = '2'
+    expect(serializeVisualBillingDocument(document)).toMatchObject({
+      ok: false,
+    })
   })
 })

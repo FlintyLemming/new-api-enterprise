@@ -20,7 +20,7 @@ import type { BillingUsageSchema } from '../../types'
 import { compileBillingExpression } from './parser'
 import { evaluateBillingCondition } from './runtime'
 import {
-  TIME_FUNCTIONS,
+  TIME_DEPENDENT_FUNCTIONS,
   expressionDependencies,
   type ExpressionNode,
   type CompiledBillingExpression,
@@ -248,10 +248,17 @@ export function isTimeCondition(node: ExpressionNode): boolean {
   return (
     dependencies.variables.size === 0 &&
     [...dependencies.functions].some((name) =>
-      (TIME_FUNCTIONS as readonly string[]).includes(name)
+      TIME_DEPENDENT_FUNCTIONS.includes(name)
     ) &&
     [...dependencies.functions].every((name) =>
-      [...TIME_FUNCTIONS, 'min', 'max', 'abs', 'ceil', 'floor'].includes(name)
+      [
+        ...TIME_DEPENDENT_FUNCTIONS,
+        'min',
+        'max',
+        'abs',
+        'ceil',
+        'floor',
+      ].includes(name)
     )
   )
 }
@@ -296,19 +303,33 @@ function timeTierBranches(
 export function readTimeTokenPricing(
   source: string,
   now?: Date
-): { tiers: TimeTokenTier[]; currentTiers: TimeTokenTier[] } | null {
+): {
+  tiers: TimeTokenTier[]
+  /** null when a condition cannot be resolved here, e.g. before the holiday calendar loads. */
+  currentTiers: TimeTokenTier[] | null
+} | null {
   const compiled = compileBillingExpression(source)
   if (compiled.status !== 'ready') return null
   const tiers = timeTierBranches(compiled, compiled.ast, [])
   if (!tiers) return null
-  const currentTiers = now
-    ? tiers.filter((tier) =>
-        tier.timeConditions.every(
-          ({ condition, matches }) =>
-            evaluateBillingCondition(compiled, condition, now) === matches
+  if (!now) return { tiers, currentTiers: [] }
+  const results = new Map<ExpressionNode, boolean | null>()
+  for (const tier of tiers) {
+    for (const { condition } of tier.timeConditions) {
+      if (!results.has(condition)) {
+        results.set(
+          condition,
+          evaluateBillingCondition(compiled, condition, now)
         )
-      )
-    : []
+      }
+    }
+  }
+  if ([...results.values()].includes(null)) return { tiers, currentTiers: null }
+  const currentTiers = tiers.filter((tier) =>
+    tier.timeConditions.every(
+      ({ condition, matches }) => results.get(condition) === matches
+    )
+  )
   return { tiers, currentTiers }
 }
 

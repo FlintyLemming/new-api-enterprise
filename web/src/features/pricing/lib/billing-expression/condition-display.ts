@@ -22,7 +22,12 @@ import { toIntlLocale } from '@/i18n/languages'
 
 import { flattenBinary } from './display'
 import { compileBillingExpression } from './parser'
-import { TIME_FUNCTIONS, type ExpressionNode, type TimeFunction } from './types'
+import {
+  TIME_FUNCTIONS,
+  WORKDAY_FUNCTION,
+  type ExpressionNode,
+  type TimeFunction,
+} from './types'
 
 type Translate = (key: string, options?: TOptions) => string
 type Description = {
@@ -130,11 +135,34 @@ function describeTimeRange(
   return { text, kind, timezone: first.timezone }
 }
 
+function describeWorkday(
+  node: ExpressionNode,
+  t: Translate
+): Description | null {
+  const negated = node.kind === 'unary' && node.operator === '!'
+  const call = negated ? node.operand : node
+  if (
+    call.kind !== 'call' ||
+    call.name !== WORKDAY_FUNCTION ||
+    call.args[0]?.kind !== 'literal' ||
+    typeof call.args[0].value !== 'string'
+  ) {
+    return null
+  }
+  return {
+    text: t(negated ? 'Non-workdays' : 'Workdays'),
+    kind: 'calendar',
+    timezone: call.args[0].value.trim() || 'UTC',
+  }
+}
+
 function describeBillingCondition(
   node: ExpressionNode,
   t: Translate,
   locale: string
 ): Description | null {
+  const workday = describeWorkday(node, t)
+  if (workday) return workday
   if (node.kind === 'unary' && node.operator === '!') {
     const description = describeBillingCondition(node.operand, t, locale)
     if (!description) return null

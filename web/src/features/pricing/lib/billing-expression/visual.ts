@@ -20,6 +20,7 @@ import { flattenBinary } from './display'
 import { compileBillingExpression } from './parser'
 import {
   TIME_FUNCTIONS,
+  WORKDAY_FUNCTION,
   type ExpressionNode,
   type TimeFunction,
   type TokenVariable,
@@ -28,7 +29,8 @@ import {
 type Origin = { id: string; origin?: ExpressionNode }
 export type VisualComparison = Origin & {
   kind: 'comparison'
-  probe: 'p' | 'c' | 'len' | TimeFunction
+  /** `is_workday` uses value '1' for workdays and '0' for non-workdays. */
+  probe: 'p' | 'c' | 'len' | TimeFunction | typeof WORKDAY_FUNCTION
   timezone: string
   operator: '<' | '<=' | '>' | '>=' | '==' | '!='
   value: string
@@ -89,6 +91,23 @@ export function createEmptyVisualCondition(): VisualComparison {
 
 function readVisualCondition(node: ExpressionNode): VisualCondition | null {
   const identity = { id: `condition-${node.start}-${node.end}`, origin: node }
+  const negated = node.kind === 'unary' && node.operator === '!'
+  const call = negated ? node.operand : node
+  if (
+    call.kind === 'call' &&
+    call.name === WORKDAY_FUNCTION &&
+    call.args[0].kind === 'literal' &&
+    typeof call.args[0].value === 'string'
+  ) {
+    return {
+      ...identity,
+      kind: 'comparison',
+      probe: WORKDAY_FUNCTION,
+      timezone: call.args[0].value,
+      operator: '==',
+      value: negated ? '0' : '1',
+    }
+  }
   if (node.kind === 'unary' && node.operator === '!') {
     const child = readVisualCondition(node.operand)
     return child ? { ...identity, kind: 'not', child } : null
@@ -238,6 +257,21 @@ function parseNonNegativeNumber(value: string): number | null {
   return Number.isFinite(number) && number >= 0 ? number : null
 }
 
+/** An unchanged stored timezone stays valid even if this browser cannot resolve it. */
+function pushTimezoneIssue(
+  node: VisualComparison,
+  originalZone: unknown,
+  issues: VisualBillingIssue[]
+): void {
+  if (node.timezone === originalZone) return
+  try {
+    if (!node.timezone.trim()) throw new Error('Empty timezone')
+    new Intl.DateTimeFormat('en', { timeZone: node.timezone.trim() }).format(0)
+  } catch {
+    issues.push({ id: node.id, message: 'Choose a valid IANA timezone.' })
+  }
+}
+
 function writeVisualCondition(
   node: VisualCondition,
   source: string,
@@ -281,6 +315,22 @@ function writeVisualCondition(
     }
     return `(${children.map((child) => `(${child})`).join(` ${operator} `)})`
   }
+  if (node.probe === WORKDAY_FUNCTION) {
+    if (node.value !== '0' && node.value !== '1') {
+      issues.push({ id: node.id, message: 'Enter a valid condition value.' })
+    }
+    const originalCall =
+      node.origin?.kind === 'unary' ? node.origin.operand : node.origin
+    pushTimezoneIssue(
+      node,
+      originalCall?.kind === 'call' && originalCall.args[0].kind === 'literal'
+        ? originalCall.args[0].value
+        : null,
+      issues
+    )
+    const call = `${WORKDAY_FUNCTION}(${JSON.stringify(node.timezone)})`
+    return node.value === '0' ? `!${call}` : call
+  }
   const value = parseNonNegativeNumber(node.value)
   let valid = value !== null
   if ((TIME_FUNCTIONS as readonly string[]).includes(node.probe)) {
@@ -298,20 +348,13 @@ function writeVisualCondition(
   if (isTime) {
     const originalProbe =
       node.origin?.kind === 'binary' ? node.origin.left : null
-    const originalZone =
+    pushTimezoneIssue(
+      node,
       originalProbe?.kind === 'call' && originalProbe.args[0].kind === 'literal'
         ? originalProbe.args[0].value
-        : null
-    if (node.timezone !== originalZone) {
-      try {
-        if (!node.timezone.trim()) throw new Error('Empty timezone')
-        new Intl.DateTimeFormat('en', {
-          timeZone: node.timezone.trim(),
-        }).format(0)
-      } catch {
-        issues.push({ id: node.id, message: 'Choose a valid IANA timezone.' })
-      }
-    }
+        : null,
+      issues
+    )
   }
   const probe = isTime
     ? `${node.probe}(${JSON.stringify(node.timezone)})`

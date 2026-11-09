@@ -1,12 +1,16 @@
 package billingexpr_test
 
 import (
+	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/cnholiday"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1195,4 +1199,56 @@ func TestFrontendSimulationContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+// holidayCalendarCoveringNow marks every day of the current and next year
+// (Asia/Shanghai) as a holiday or an adjusted workday, so the result does not
+// depend on the date or a midnight rollover during the test.
+func holidayCalendarCoveringNow(t *testing.T, field string) *cnholiday.Calendar {
+	t.Helper()
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	require.NoError(t, err)
+	year := time.Now().In(shanghai).Year()
+	entries := make([]string, 0, 2)
+	for _, y := range []int{year, year + 1} {
+		days := time.Date(y, time.December, 31, 0, 0, 0, 0, time.UTC).YearDay()
+		values := make([]string, days)
+		for i := range days {
+			values[i] = fmt.Sprint(i + 1)
+		}
+		entries = append(entries, fmt.Sprintf(`{"year":%d,%q:[%s]}`, y, field, strings.Join(values, ",")))
+	}
+	calendar, err := cnholiday.Parse([]byte(`{"holiday":[` + strings.Join(entries, ",") + `]}`))
+	require.NoError(t, err)
+	return calendar
+}
+
+func TestIsWorkdayUsesHolidayCalendar(t *testing.T) {
+	t.Cleanup(func() { cnholiday.SetCurrent(nil) })
+	exprStr := `is_workday("Asia/Shanghai") ? tier("peak", p * 4) : tier("off_peak", p * 2)`
+
+	cnholiday.SetCurrent(holidayCalendarCoveringNow(t, "freeday"))
+	cost, trace, err := billingexpr.RunExpr(exprStr, billingexpr.TokenParams{P: 100})
+	require.NoError(t, err)
+	assert.Equal(t, 200.0, cost)
+	assert.Equal(t, "off_peak", trace.MatchedTier)
+
+	cnholiday.SetCurrent(holidayCalendarCoveringNow(t, "workday"))
+	cost, trace, err = billingexpr.RunExpr(exprStr, billingexpr.TokenParams{P: 100})
+	require.NoError(t, err)
+	assert.Equal(t, 400.0, cost)
+	assert.Equal(t, "peak", trace.MatchedTier)
+}
+
+func TestIsWorkdayRequestRuleIsTraced(t *testing.T) {
+	t.Cleanup(func() { cnholiday.SetCurrent(nil) })
+	cnholiday.SetCurrent(holidayCalendarCoveringNow(t, "freeday"))
+
+	exprStr := `tier("base", p * 2) * (!is_workday("Asia/Shanghai") ? 0.5 : 1)`
+	cost, trace, err := billingexpr.RunExpr(exprStr, billingexpr.TokenParams{P: 100})
+	require.NoError(t, err)
+	assert.Equal(t, 100.0, cost)
+	require.Len(t, trace.RequestRules, 1)
+	assert.Equal(t, `!is_workday("Asia/Shanghai")`, trace.RequestRules[0].Cond)
+	assert.True(t, trace.RequestRules[0].Matched)
 }

@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { WORKDAY_FUNCTION } from '@/features/pricing/lib/billing-expression/types'
 import {
   createEmptyVisualCondition,
   visualNodeId,
@@ -252,6 +253,7 @@ function ConditionFields(props: ConditionProps) {
       <div className='flex min-w-0 flex-1 flex-wrap items-center gap-2'>
         <BillingTimeProbeFields
           includeTokens
+          includeWorkday={!range}
           probe={comparison.probe}
           timezone={comparison.timezone}
           invalidTimezone={errors.some(
@@ -259,7 +261,21 @@ function ConditionFields(props: ConditionProps) {
           )}
           onChange={(probe, timezone) => {
             if (node.kind === 'comparison') {
-              props.onChange({ ...node, probe, timezone })
+              // Workday status has no operator and only the values 1 and 0.
+              const workdayChanged =
+                (probe === WORKDAY_FUNCTION) !==
+                (node.probe === WORKDAY_FUNCTION)
+              props.onChange({
+                ...node,
+                probe,
+                timezone,
+                ...(workdayChanged
+                  ? {
+                      operator: probe === WORKDAY_FUNCTION ? '==' : '>=',
+                      value: probe === WORKDAY_FUNCTION ? '1' : '',
+                    }
+                  : {}),
+              })
             } else if (range && (node.kind === 'all' || node.kind === 'any')) {
               props.onChange({
                 ...node,
@@ -270,10 +286,12 @@ function ConditionFields(props: ConditionProps) {
         />
         {node.kind === 'comparison' && (
           <>
-            <ComparisonOperator
-              value={node.operator}
-              onChange={(operator) => props.onChange({ ...node, operator })}
-            />
+            {node.probe !== WORKDAY_FUNCTION && (
+              <ComparisonOperator
+                value={node.operator}
+                onChange={(operator) => props.onChange({ ...node, operator })}
+              />
+            )}
             <BillingConditionValueInput
               probe={node.probe}
               value={node.value}

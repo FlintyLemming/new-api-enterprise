@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/cnholiday"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -276,6 +277,10 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "UserIPWhitelist" {
 		return setting.ValidateUserIPWhitelist(value)
+	}
+	if key == cnholiday.OptionKey && value != "" {
+		_, err := cnholiday.Parse([]byte(value))
+		return err
 	}
 	return nil
 }
@@ -711,6 +716,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = operation_setting.AutomaticRetryStatusCodesFromString(value)
 	case "StreamCacheQueueLength":
 		setting.StreamCacheQueueLength, _ = strconv.Atoi(value)
+	case cnholiday.OptionKey:
+		err = cnholiday.Load(value)
 	case "PayMethods":
 		err = operation_setting.UpdatePayMethodsByJsonString(value)
 	case "WaffoPayMethods":

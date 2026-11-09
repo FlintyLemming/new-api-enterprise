@@ -21,6 +21,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(holidayCalendarHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -159,4 +160,28 @@ func finishSystemTaskHandler(task *model.SystemTask, runnerID string, status mod
 	if err := model.FinishSystemTask(task.TaskID, runnerID, status, result, errorMessage); err != nil {
 		common.SysLog(common.LogText("system task %s failed to persist result: %v", task.TaskID, err))
 	}
+}
+
+// holidayCalendarHandler refreshes the mainland China holiday calendar used by
+// the is_workday() billing expression function. A failed run keeps the stored
+// calendar; the shorter interval retries a transient upstream failure the same day.
+type holidayCalendarHandler struct{}
+
+func (holidayCalendarHandler) Type() string { return model.SystemTaskTypeHolidayCalendar }
+
+func (holidayCalendarHandler) Enabled() bool {
+	return common.GetEnvOrDefaultBool("HOLIDAY_CALENDAR_SYNC_ENABLED", true)
+}
+
+func (holidayCalendarHandler) Interval() time.Duration { return 6 * time.Hour }
+
+func (holidayCalendarHandler) NewPayload() any { return nil }
+
+func (holidayCalendarHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	result, err := service.SyncHolidayCalendar(ctx)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }

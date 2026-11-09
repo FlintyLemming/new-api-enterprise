@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/pkg/cnholiday"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/expr-lang/expr"
@@ -134,16 +135,17 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 			}
 			return strings.Contains(fmt.Sprint(source), substr)
 		},
-		"hour":    func(tz string) int { return timeInZone(tz).Hour() },
-		"minute":  func(tz string) int { return timeInZone(tz).Minute() },
-		"weekday": func(tz string) int { return int(timeInZone(tz).Weekday()) },
-		"month":   func(tz string) int { return int(timeInZone(tz).Month()) },
-		"day":     func(tz string) int { return timeInZone(tz).Day() },
-		"max":     math.Max,
-		"min":     math.Min,
-		"abs":     math.Abs,
-		"ceil":    math.Ceil,
-		"floor":   math.Floor,
+		"hour":       func(tz string) int { return timeInZone(tz).Hour() },
+		"minute":     func(tz string) int { return timeInZone(tz).Minute() },
+		"weekday":    func(tz string) int { return int(timeInZone(tz).Weekday()) },
+		"month":      func(tz string) int { return int(timeInZone(tz).Month()) },
+		"day":        func(tz string) int { return timeInZone(tz).Day() },
+		"is_workday": func(tz string) bool { return cnholiday.IsWorkday(timeInZone(tz)) },
+		"max":        math.Max,
+		"min":        math.Min,
+		"abs":        math.Abs,
+		"ceil":       math.Ceil,
+		"floor":      math.Floor,
 	}
 
 	out, err := expr.Run(prog, env)

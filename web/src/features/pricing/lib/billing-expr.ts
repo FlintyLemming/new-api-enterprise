@@ -319,7 +319,7 @@ export function getCurrentTimePricingTiers(
   now: Date
 ): ParsedTier[] | null {
   return (
-    readTimeTokenPricing(exprStr, now)?.currentTiers.map(mapTokenTier) ?? null
+    readTimeTokenPricing(exprStr, now)?.currentTiers?.map(mapTokenTier) ?? null
   )
 }
 

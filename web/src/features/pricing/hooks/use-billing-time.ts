@@ -16,10 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
+import { getHolidayCalendar } from '../api'
+import {
+  isHolidayCalendarLoaded,
+  setHolidayCalendar,
+} from '../lib/billing-expression/holiday-calendar'
 import { compileBillingExpression } from '../lib/billing-expression/parser'
-import { TIME_FUNCTIONS } from '../lib/billing-expression/types'
+import {
+  TIME_DEPENDENT_FUNCTIONS,
+  WORKDAY_FUNCTION,
+} from '../lib/billing-expression/types'
 
 const listeners = new Set<() => void>()
 let timestamp = Date.now()
@@ -50,6 +58,22 @@ function subscribeBillingTime(listener: () => void): () => void {
   }
 }
 
+let holidayCalendarRequest: Promise<void> | null = null
+
+/** Loads the server calendar once; until then is_workday() previews stay unresolved. */
+function loadHolidayCalendar(): void {
+  if (holidayCalendarRequest || isHolidayCalendarLoaded()) return
+  holidayCalendarRequest = getHolidayCalendar()
+    .then((payload) => {
+      setHolidayCalendar(payload)
+      refreshBillingTime()
+    })
+    .catch(() => {
+      // Previews fall back to listing every tier; the next mount retries.
+      holidayCalendarRequest = null
+    })
+}
+
 function getBillingTime(): number {
   return timestamp
 }
@@ -69,7 +93,12 @@ export function useBillingTime(
     expression && enabled ? compileBillingExpression(expression) : null
   const needsTime =
     compiled?.status === 'ready' &&
-    TIME_FUNCTIONS.some((name) => compiled.functions.has(name))
+    TIME_DEPENDENT_FUNCTIONS.some((name) => compiled.functions.has(name))
+  const needsHolidayCalendar =
+    compiled?.status === 'ready' && compiled.functions.has(WORKDAY_FUNCTION)
+  useEffect(() => {
+    if (needsHolidayCalendar) loadHolidayCalendar()
+  }, [needsHolidayCalendar])
   return useSyncExternalStore(
     needsTime ? subscribeBillingTime : subscribeWithoutTime,
     needsTime ? getBillingTime : getNoTime,

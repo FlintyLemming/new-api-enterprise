@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/pkg/cnholiday"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -325,4 +326,14 @@ func ResetPassword(c *gin.Context) {
 		"data":    password,
 	})
 	return
+}
+
+// GetHolidayCalendar serves the stored mainland China holiday calendar so
+// pricing pages resolve is_workday() with the same data as billing. The data
+// is an empty string until the first successful sync.
+func GetHolidayCalendar(c *gin.Context) {
+	common.OptionMapRWMutex.RLock()
+	calendar := common.OptionMap[cnholiday.OptionKey]
+	common.OptionMapRWMutex.RUnlock()
+	serveRevalidatedJSON(c, calendar)
 }

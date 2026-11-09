@@ -172,11 +172,22 @@ OpenAI 已于 2026-05-12 下线 DALL·E 2/3；其校验、默认值和倍率保�
 | `weekday` | `weekday(tz) → int` | Day of week (0=Sunday, 6=Saturday) |
 | `month` | `month(tz) → int` | Month (1-12) |
 | `day` | `day(tz) → int` | Day of month (1-31) |
+| `is_workday` | `is_workday(tz) → bool` | Whether the current date in timezone is a mainland China working day: official holidays are false, adjusted weekend workdays (调休) are true, other dates follow Monday–Friday |
 | `max` | `max(a, b) → float64` | Math max |
 | `min` | `min(a, b) → float64` | Math min |
 | `abs` | `abs(x) → float64` | Absolute value |
 | `ceil` | `ceil(x) → float64` | Ceiling |
 | `floor` | `floor(x) → float64` | Floor |
+
+`is_workday` reads the calendar in the `HolidayCalendar` option. The master node's
+`holiday_calendar_sync` system task fetches it every 6 hours from
+`HOLIDAY_CALENDAR_URL` (default: the Xiaomi holiday API, which lists each year's
+holidays and adjusted workdays as day-of-year numbers) and stores it only when it
+changes; other nodes load it through the normal option sync. A failed fetch keeps
+the stored calendar, and `HOLIDAY_CALENDAR_SYNC_ENABLED=false` disables the task.
+For a year the calendar does not cover, `is_workday` falls back to Monday–Friday.
+Like the other time functions, it is evaluated at pre-consume and again at
+settlement, each time against the current date.
 
 ### Expression Examples
 
@@ -199,6 +210,11 @@ tier("base", p * 2 + c * 8 + img * 2.5)
 
 # Multimodal with audio
 tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)
+
+# Peak pricing on mainland China working days 09:00-18:00, off-peak otherwise
+is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18
+  ? tier("peak", p * 3 + c * 15)
+  : tier("off_peak", p * 1.5 + c * 7.5)
 ```
 
 ### Fixed Request Prices
@@ -253,7 +269,7 @@ At compile time, the engine instruments ternary factors with this exact shape:
 <request-probe condition> ? <numeric literal> : 1
 ```
 
-The condition must reference at least one request probe (`param`, `header`, `hour`, `minute`, `weekday`, `month`, or `day`). Both branches must be numeric literals and the fallback must equal `1`. Other conditionals, including `(condition ? 2 : 1.5)`, are evaluated normally but are not traced. Integer-only factors use an integer-preserving trace callback, so instrumentation does not change expressions that require an integer operand (for example, `%`). The internal trace callback names are reserved and cannot be used in stored expressions.
+The condition must reference at least one request probe (`param`, `header`, `hour`, `minute`, `weekday`, `month`, `day`, or `is_workday`). Both branches must be numeric literals and the fallback must equal `1`. Other conditionals, including `(condition ? 2 : 1.5)`, are evaluated normally but are not traced. Integer-only factors use an integer-preserving trace callback, so instrumentation does not change expressions that require an integer operand (for example, `%`). The internal trace callback names are reserved and cannot be used in stored expressions.
 
 The compiled cache stores the canonical condition and multiplier for every instrumented node. Each run starts with the full detected rule list marked as unmatched; callbacks mark rules that actually evaluate true. Rules skipped by normal expression short-circuiting remain unmatched. This keeps the expression's numeric result unchanged and avoids reparsing it on each request.
 

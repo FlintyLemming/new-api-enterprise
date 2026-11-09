@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   BILLING_FUNCTIONS,
   BILLING_VARIABLES,
+  TIME_DEPENDENT_FUNCTIONS,
   TIME_FUNCTIONS,
+  WORKDAY_FUNCTION,
   BillingExpressionError,
   expressionDependencies,
   expressionFailure,
@@ -398,7 +400,11 @@ function checkExpressionTypes(ast: ExpressionNode): void {
         result = 'number'
       }
     } else if (node.kind === 'call') {
-      if (['param', 'header', 'u', ...TIME_FUNCTIONS].includes(node.name)) {
+      if (
+        ['param', 'header', 'u', ...TIME_DEPENDENT_FUNCTIONS].includes(
+          node.name
+        )
+      ) {
         requireType(node.args[0], 'string')
       }
       if (node.name === 'header') result = 'string'
@@ -409,6 +415,8 @@ function checkExpressionTypes(ast: ExpressionNode): void {
         requireType(node.args[0], 'string')
         requireType(node.args[1], 'number')
         result = 'number'
+      } else if (node.name === WORKDAY_FUNCTION) {
+        result = 'boolean'
       } else if ((TIME_FUNCTIONS as readonly string[]).includes(node.name)) {
         result = 'number'
       } else if (
@@ -506,7 +514,7 @@ export function compileBillingExpression(source: string): CompilationResult {
       const calls = expressionDependencies(node.condition).functions
       if (
         ![...calls].some((name) =>
-          ['param', 'header', ...TIME_FUNCTIONS].includes(name)
+          ['param', 'header', ...TIME_DEPENDENT_FUNCTIONS].includes(name)
         )
       ) {
         return
