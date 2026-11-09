@@ -35,3 +35,7 @@ is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai
 ## 部署影响
 
 无表结构变化。新增 option key `HolidayCalendar`（约 2.8 KB）与 `system_tasks` 新类型 `holiday_calendar_sync`。容器需能访问 `api.comm.miui.com`（8850 已确认可达）。只有表达式里用了 `is_workday` 的模型计费才会变化。
+
+## 生产使用
+
+2026-11-09 起 8850 的 `deepseek-flash` 与 `llm-prime` 用 `is_workday` 表达式做峰谷计价，取代 7810 ratio 模块的定时改写（已关闭），见[部署台账 §20](2026-08-15-langfuse-local-deployment.md#20-2026-11-09-deepseek-flash--llm-prime-改用表达式内置节假日峰谷)。

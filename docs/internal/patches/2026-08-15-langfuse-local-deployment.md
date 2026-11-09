@@ -354,3 +354,19 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 无数据库迁移，未做彩排，compose 未改。02:39:07–02:39:50 UTC 执行 `docker compose up -d --no-deps --wait --wait-timeout 180 new-api`，容器 02:39:19 启动，healthy，重启 0 次；PostgreSQL、ClickHouse、Redis 未重建。
 - 验证：`/api/status` 版本 `internal-custom`，首页 HTTP 200。`holiday_calendar_sync` 任务 02:39:22 UTC `succeeded`，覆盖 2011–2027 年，`changed=true`；`/api/holiday_calendar` 返回日历；启动后两分钟日志无错误。切换前已确认容器内可访问 `api.comm.miui.com`。
 - 回滚：compose 的 image 改为 `:internal-custom-0c5d6ae`，再执行同一条 `up -d` 命令。`HolidayCalendar` option 与 `system_tasks` 里的新行旧版本会忽略，无需清理。
+
+## 20. 2026-11-09 deepseek-flash / llm-prime 改用表达式内置节假日峰谷
+
+- 目的：节假日维持谷价，判断规则与 7810 `model-dynamic-control` 的 ratio 模块一致（`Asia/Shanghai`，工作日 09:00–18:00 为峰，其余为谷；工作日按小米节假日日历，含调休；未覆盖年份按周一至周五）。此前由 7810 每 60 秒按峰谷改写 new-api 的表达式，现在由 new-api 表达式自己切换。
+- 两个模型的表达式相同，价格沿用 7810 配置（阈值 256000，峰 3 / 10，谷 0.2 / 0.4）；tier 名由 `standard` / `long_context` 改为 `peak_*` / `off_peak_*`，日志可直接看出峰谷：
+
+  ```
+  is_workday("Asia/Shanghai") && hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18 ? (len <= 256000 ? tier("peak_standard", p * 3 + c * 3) : tier("peak_long_context", p * 10 + c * 10)) : (len <= 256000 ? tier("off_peak_standard", p * 0.2 + c * 0.2) : tier("off_peak_long_context", p * 0.4 + c * 0.4))
+  ```
+
+- 上线前验证：Go 引擎与前端求值器按固定日期核对（10-01 国庆、09-20 周日调休、18:00、08:59、周六、长上下文），定价页列出四档，可视化编辑器原样往返。
+- 7810：02:48 UTC 停容器，备份 `/data/model-dynamic-control.db.bak-20261109-ratio-off`（volume `7810-model-dynamic-control_model-dynamic-control-data`），用 `keinos/sqlite3` 把 `module_configs` 中 ratio 的 `enabled` 置为 `false`（version 10→11），`integrity_check` ok，启动后 healthy。switcher、autosub 不变。7810 只在启动时读配置，改配置需重启。
+- 8850：`pg_dump` 备份 options 表到 `/home/flintylemming/appdata/8850-new-api/backups/holiday-pricing-20261109/options-before.sql`（目录 700、文件 600），单事务 `jsonb ||` 只改这两个 key（带"旧值仍为 7810 峰价表达式"的条件），其余 6 个模型不变；下一次 option 同步生效，无加载错误。
+- 验证：`/api/pricing` 返回新表达式；02:50 UTC（北京 10:50，工作日）起 llm-prime 消费日志 `matched_tier=peak_standard`。
+- 遗留：7810 最后写入的两个模型倍率（峰值 3）仍在 `model_ratio` 中，表达式计费下不生效。
+- 回滚：用备份恢复两个表达式；如需恢复 7810 改写，把 ratio `enabled` 改回 `true` 并重启 7810。
