@@ -292,7 +292,10 @@ const SENSITIVE_FORM_FIELDS = [
   'advanced_custom',
   'is_enterprise_account',
   'vertex_key_type',
+  'vertex_project_id',
+  'vertex_api_version',
   'aws_key_type',
+  'aws_api_type',
   'azure_responses_version',
   'force_format',
   'thinking_to_content',
@@ -3838,6 +3841,54 @@ export function ChannelMutateDrawer({
             {currentType === 33 && (
               <FormField
                 control={form.control}
+                name='aws_api_type'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('AWS API')}</FormLabel>
+                    <Select
+                      disabled={sensitiveLocked}
+                      items={[
+                        {
+                          value: 'invoke_model',
+                          label: t('InvokeModel (legacy)'),
+                        },
+                        {
+                          value: 'mantle',
+                          label: t('Mantle (Messages API)'),
+                        },
+                      ]}
+                      onValueChange={field.onChange}
+                      value={field.value ?? 'invoke_model'}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='invoke_model'>
+                            {t('InvokeModel (legacy)')}
+                          </SelectItem>
+                          <SelectItem value='mantle'>
+                            {t('Mantle (Messages API)')}
+                          </SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {t(
+                        'Use Mantle for supported Claude models and automatic prompt caching. Keep InvokeModel for older models and Amazon Nova.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {currentType === 33 && (
+              <FormField
+                control={form.control}
                 name='aws_key_type'
                 render={({ field }) => (
                   <FormItem>
@@ -4039,6 +4090,56 @@ export function ChannelMutateDrawer({
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name='vertex_api_version'
+                  render={({ field }) => (
+                    <FormItem className='flex items-center justify-between'>
+                      <div className='space-y-0.5'>
+                        <FormLabel>
+                          {t('Use Vertex AI v1beta1 endpoint')}
+                        </FormLabel>
+                        <FormDescription>
+                          {t(
+                            'Switches Gemini and Imagen requests on this Vertex channel from v1 to v1beta1. Some features require v1beta1; check the Vertex AI documentation.'
+                          )}
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          disabled={sensitiveLocked}
+                          checked={field.value === 'v1beta1'}
+                          onCheckedChange={(checked) =>
+                            field.onChange(checked ? 'v1beta1' : 'v1')
+                          }
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {vertexKeyType === 'api_key' && (
+                  <FormField
+                    control={form.control}
+                    name='vertex_project_id'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Vertex AI Project ID')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('e.g., my-project-123')}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Optional. Without it, Google picks the region; with it, requests go to the deployment region below.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 {vertexKeyType === 'json' && (
                   <FormItem>
                     <FormLabel>{t('Service account JSON file(s)')}</FormLabel>
@@ -4808,8 +4909,7 @@ export function ChannelMutateDrawer({
                 {thinkingFields}
                 {stripBillingHeaderFields}
                 {inlineSystemMessagesFields}
-                {currentType !== CHANNEL_TYPE_ADVANCED_CUSTOM &&
-                  passthroughFields}
+                {passthroughFields}
                 {systemPromptFields}
                 {systemPromptOverrideFields}
               </fieldset>
@@ -5204,6 +5304,7 @@ export function ChannelMutateDrawer({
         onConfirm={() => handleStatusCodeRiskAction(true)}
       />
       <PassthroughWarningDialog
+        channelType={currentType}
         open={passthroughWarningKind !== null}
         kind={passthroughWarningKind}
         onOpenChange={(v) => {

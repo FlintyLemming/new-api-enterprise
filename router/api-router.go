@@ -233,6 +233,7 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.GET("/exchange-key", controller.GetExchangeKeySetting)
 			optionRoute.PUT("/exchange-key", controller.UpdateExchangeKeySetting)
 			optionRoute.GET("/model_pricing", controller.GetModelPricingConfig)
+			optionRoute.GET("/model_pricing/issues", controller.GetModelPricingIssues)
 			optionRoute.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
 			optionRoute.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
 			optionRoute.POST("/model_pricing/preview", controller.PreviewModelPricing)

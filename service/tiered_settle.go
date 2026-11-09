@@ -7,7 +7,9 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,9 +30,14 @@ type TieredResultWrapper = billingexpr.TieredResult
 // include cache reads and writes. When true the prompt is normalized like
 // GPT-format usage even under Claude usage semantics, because a channel can
 // declare that its Claude-format input_tokens already count cache. When false
-// the prompt is exclusive: cache is not subtracted again, cache reads without
-// their own cr price are added to P, and len adds cache back, as under Claude
-// usage semantics. Image and audio input stay inside an exclusive prompt.
+// the prompt is exclusive: cache is not subtracted again, cache reads and
+// writes without their own price are added to P, and len adds cache back, as
+// under Claude usage semantics. Image and audio input stay inside an
+// exclusive prompt.
+//
+// A long-lived cache write (Claude 1h, OpenAI 12h) without its own price
+// costs a fixed multiple of the short write price: it is billed in cc, or in
+// p when cc has no price either.
 func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, promptTokensIncludeCache bool, usedVars map[string]bool) billingexpr.TokenParams {
 	if promptTokensIncludeCache {
 		isClaudeUsageSemantic = false
@@ -38,12 +45,20 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 	p := float64(usage.PromptTokens)
 	c := float64(usage.CompletionTokens)
 	cr := float64(usage.PromptTokensDetails.CachedTokens)
-	cc5m := float64(usage.PromptTokensDetails.CacheCreationTokensTotal())
+	cc := float64(usage.PromptTokensDetails.CacheCreationTokensTotal())
 	cc1h := float64(0)
+	cc12h := float64(0)
 
 	if usage.UsageSemantic == "anthropic" {
-		cc1h = float64(usage.ClaudeCacheCreation1hTokens)
-		cc5m = float64(usage.ClaudeCacheCreation5mTokens)
+		// Upstreams may report the cache-write total without a full 5m/1h
+		// split; the unlabelled remainder is billed as 5m writes.
+		split5m, split1h := relayconvert.NormalizeCacheCreationSplit(
+			usage.PromptTokensDetails.CacheCreationTokensTotal(),
+			usage.ClaudeCacheCreation5mTokens,
+			usage.ClaudeCacheCreation1hTokens,
+		)
+		cc = float64(split5m)
+		cc1h = float64(split1h)
 	}
 
 	img := float64(usage.PromptTokensDetails.ImageTokens)
@@ -88,51 +103,86 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 	// Any other exclusive prompt leaves cache out in the same way.
 	inputLen := p
 	if isClaudeUsageSemantic || !promptTokensIncludeCache {
-		inputLen = p + cr + cc5m + cc1h
+		inputLen = p + cr + cc + cc1h
 	}
 
-	if isClaudeUsageSemantic {
-		// Anthropic input excludes cache reads. When cr has no separate
-		// price, merge those tokens into the input category instead.
+	switch {
+	case isClaudeUsageSemantic:
+		// Anthropic input excludes cache reads and writes. When they have no
+		// separate price, merge those tokens into the input category instead.
 		if !usedVars["cr"] {
 			p += cr
 		}
-	} else {
+		if !usedVars["cc1h"] {
+			cc += cc1h * hosttypes.ClaudeCacheCreation1hMultiplier
+			cc1h = 0
+		}
+		if !usedVars["cc"] {
+			p += cc
+			cc = 0
+		}
+	case promptTokensIncludeCache:
 		// An inclusive prompt counts every sub-bucket, so the priced ones
 		// come out of P.
-		if promptTokensIncludeCache {
-			if usedVars["cr"] {
-				p -= cr
-			}
-			if usedVars["cc"] {
-				p -= cc5m
-			}
-			if usedVars["cc1h"] {
-				p -= cc1h
-			}
-			if usedVars["img"] {
-				p -= img
-			}
-			if usedVars["img_cr"] {
-				p -= imgCR
-			}
-			if usedVars["ai"] {
-				p -= ai
-			}
-		} else {
-			// An exclusive prompt leaves cache reads out, as Anthropic input
-			// does, so unpriced cache reads fold into input. Image and audio
-			// input are still inside it.
-			if !usedVars["cr"] {
-				p += cr
-			}
-			if usedVars["img"] {
-				p -= img
-			}
-			if usedVars["ai"] {
-				p -= ai
-			}
+		if usedVars["cr"] {
+			p -= cr
 		}
+		// prompt_tokens counts every cache write once. A 12h write without
+		// its own price joins cc at twice its count; ccTokens keeps the real
+		// count that cc takes out of p, and an unpriced cc leaves p the extra.
+		cc12h = float64(usage.PromptTokensDetails.CacheWrite12hTokens())
+		cc -= cc12h
+		ccTokens := cc
+		if usedVars["cc12h"] {
+			p -= cc12h
+		} else {
+			ccTokens += cc12h
+			cc += cc12h * hosttypes.OpenAICacheCreation12hMultiplier
+			cc12h = 0
+		}
+		if usedVars["cc"] {
+			p -= ccTokens
+		} else {
+			p += cc - ccTokens
+			cc = 0
+		}
+		if usedVars["cc1h"] {
+			p -= cc1h
+		}
+		if usedVars["img"] {
+			p -= img
+		}
+		if usedVars["img_cr"] {
+			p -= imgCR
+		}
+		if usedVars["ai"] {
+			p -= ai
+		}
+	default:
+		// An exclusive prompt leaves cache reads and writes out, as Anthropic
+		// input does, so unpriced cache folds into input. Image and audio
+		// input are still inside it.
+		if !usedVars["cr"] {
+			p += cr
+		}
+		cc12h = float64(usage.PromptTokensDetails.CacheWrite12hTokens())
+		cc -= cc12h
+		if !usedVars["cc12h"] {
+			cc += cc12h * hosttypes.OpenAICacheCreation12hMultiplier
+			cc12h = 0
+		}
+		if !usedVars["cc"] {
+			p += cc
+			cc = 0
+		}
+		if usedVars["img"] {
+			p -= img
+		}
+		if usedVars["ai"] {
+			p -= ai
+		}
+	}
+	if !isClaudeUsageSemantic {
 		if usedVars["img_o"] {
 			c -= imgO
 		}
@@ -155,8 +205,9 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, prompt
 		C:     c,
 		Len:   inputLen,
 		CR:    cr,
-		CC:    cc5m,
+		CC:    cc,
 		CC1h:  cc1h,
+		CC12h: cc12h,
 		Img:   img,
 		ImgCR: imgCR,
 		ImgO:  imgO,

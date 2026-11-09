@@ -37,29 +37,31 @@ func appendToolSurchargeLogInfo(other *model.LogOther, items []ToolSurchargeItem
 }
 
 type textQuotaSummary struct {
-	PromptTokens          int
-	CompletionTokens      int
-	TotalTokens           int
-	CacheTokens           int
-	CacheCreationTokens   int
-	CacheCreationTokens5m int
-	CacheCreationTokens1h int
-	ImageTokens           int
-	AudioTokens           int
-	ModelName             string
-	TokenName             string
-	UseTimeMillis         int64
-	CompletionRatio       float64
-	CacheRatio            float64
-	ImageRatio            float64
-	ModelRatio            float64
-	GroupRatio            float64
-	ModelPrice            float64
-	CacheCreationRatio    float64
-	CacheCreationRatio5m  float64
-	CacheCreationRatio1h  float64
-	Quota                 int
-	IsClaudeUsageSemantic bool
+	PromptTokens           int
+	CompletionTokens       int
+	TotalTokens            int
+	CacheTokens            int
+	CacheCreationTokens    int
+	CacheCreationTokens5m  int
+	CacheCreationTokens1h  int
+	CacheCreationTokens12h int
+	ImageTokens            int
+	AudioTokens            int
+	ModelName              string
+	TokenName              string
+	UseTimeMillis          int64
+	CompletionRatio        float64
+	CacheRatio             float64
+	ImageRatio             float64
+	ModelRatio             float64
+	GroupRatio             float64
+	ModelPrice             float64
+	CacheCreationRatio     float64
+	CacheCreationRatio5m   float64
+	CacheCreationRatio1h   float64
+	CacheCreationRatio12h  float64
+	Quota                  int
+	IsClaudeUsageSemantic  bool
 	// UpstreamPromptTokensIncludeCache is the raw upstream prompt token caliber
 	// before any fold (channel declaration takes priority). Consumed only by
 	// tiered billing.
@@ -75,11 +77,16 @@ type textQuotaSummary struct {
 }
 
 // hasBillableUsage reports whether this request should incur any charge.
-// A request can carry zero tokens yet still be billable via a tool-call
+// Claude, and any channel whose prompt excludes cache, reports cache tokens
+// separately from ordinary input and output.
+// A request can carry zero ordinary tokens yet still be billable via cache or a tool-call
 // surcharge (e.g. /v1/alpha/search returns no usage but bills one web_search
 // call), so token count alone is not sufficient to decide.
 func (s *textQuotaSummary) hasBillableUsage() bool {
-	return s.FixedPriceBilling || s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero()
+	return s.FixedPriceBilling || s.TotalTokens > 0 ||
+		((s.IsClaudeUsageSemantic || s.InputExcludesCache) && (s.CacheTokens > 0 || s.CacheCreationTokens > 0 ||
+			s.CacheCreationTokens5m > 0 || s.CacheCreationTokens1h > 0)) ||
+		!s.ToolCallSurchargeQuota.IsZero()
 }
 
 // checkedCacheWriteTokensTotal is the telemetry counterpart of
@@ -345,19 +352,20 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 // the result with tiered billing, affinity observation and logging.
 func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) textQuotaSummary {
 	summary := textQuotaSummary{
-		ModelName:            relayInfo.GetBillingModelName(),
-		TokenName:            ctx.GetString("token_name"),
-		UseTimeMillis:        time.Now().UnixMilli() - relayInfo.StartTime.UnixMilli(),
-		CompletionRatio:      relayInfo.PriceData.CompletionRatio,
-		CacheRatio:           relayInfo.PriceData.CacheRatio,
-		ImageRatio:           relayInfo.PriceData.ImageRatio,
-		ModelRatio:           relayInfo.PriceData.ModelRatio,
-		GroupRatio:           relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-		ModelPrice:           relayInfo.PriceData.ModelPrice,
-		CacheCreationRatio:   relayInfo.PriceData.CacheCreationRatio,
-		CacheCreationRatio5m: relayInfo.PriceData.CacheCreation5mRatio,
-		CacheCreationRatio1h: relayInfo.PriceData.CacheCreation1hRatio,
-		UsageSemantic:        usageSemanticFromUsage(relayInfo, usage),
+		ModelName:             relayInfo.GetBillingModelName(),
+		TokenName:             ctx.GetString("token_name"),
+		UseTimeMillis:         time.Now().UnixMilli() - relayInfo.StartTime.UnixMilli(),
+		CompletionRatio:       relayInfo.PriceData.CompletionRatio,
+		CacheRatio:            relayInfo.PriceData.CacheRatio,
+		ImageRatio:            relayInfo.PriceData.ImageRatio,
+		ModelRatio:            relayInfo.PriceData.ModelRatio,
+		GroupRatio:            relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+		ModelPrice:            relayInfo.PriceData.ModelPrice,
+		CacheCreationRatio:    relayInfo.PriceData.CacheCreationRatio,
+		CacheCreationRatio5m:  relayInfo.PriceData.CacheCreation5mRatio,
+		CacheCreationRatio1h:  relayInfo.PriceData.CacheCreation1hRatio,
+		CacheCreationRatio12h: relayInfo.PriceData.CacheCreation12hRatio,
+		UsageSemantic:         usageSemanticFromUsage(relayInfo, usage),
 	}
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
@@ -379,6 +387,9 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
+	if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
+		summary.CacheCreationTokens12h = usage.PromptTokensDetails.CacheWrite12hTokens()
+	}
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
 		summary.IsClaudeUsageSemantic
@@ -424,6 +435,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	dCacheCreationRatio := decimal.NewFromFloat(summary.CacheCreationRatio)
 	dCacheCreationRatio5m := decimal.NewFromFloat(summary.CacheCreationRatio5m)
 	dCacheCreationRatio1h := decimal.NewFromFloat(summary.CacheCreationRatio1h)
+	dCacheCreationRatio12h := decimal.NewFromFloat(summary.CacheCreationRatio12h)
 	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 
 	ratio := dModelRatio.Mul(dGroupRatio)
@@ -448,15 +460,21 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 			case promptTokensIncludeCache:
 				// inclusive 原始口径:从 base tokens 扣减并按扁平 cache creation 倍率计价(现状)。
 				baseTokens = baseTokens.Sub(dCachedCreationTokens)
-				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
+				// The total includes the 12h writes, which have their own ratio.
+				dCachedCreationTokens12h := decimal.NewFromInt(int64(summary.CacheCreationTokens12h))
+				cachedCreationTokensWithRatio = dCachedCreationTokens.Sub(dCachedCreationTokens12h).Mul(dCacheCreationRatio)
+				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(dCachedCreationTokens12h.Mul(dCacheCreationRatio12h))
 			case summary.IsClaudeUsageSemantic || legacyClaudeDerived:
 				remaining := max(summary.CacheCreationTokens-summary.CacheCreationTokens5m-summary.CacheCreationTokens1h, 0)
 				cachedCreationTokensWithRatio = decimal.NewFromInt(int64(remaining)).Mul(dCacheCreationRatio)
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens5m)).Mul(dCacheCreationRatio5m))
 				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(decimal.NewFromInt(int64(summary.CacheCreationTokens1h)).Mul(dCacheCreationRatio1h))
 			default:
-				// 声明 prompt_excludes_cache 的非 Claude 渠道:不扣 base,按扁平倍率计价。
-				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
+				// 声明 prompt_excludes_cache 的非 Claude 渠道:不扣 base,按扁平倍率计价;
+				// 12h 写入同样按自己的倍率计价。
+				dCachedCreationTokens12h := decimal.NewFromInt(int64(summary.CacheCreationTokens12h))
+				cachedCreationTokensWithRatio = dCachedCreationTokens.Sub(dCachedCreationTokens12h).Mul(dCacheCreationRatio)
+				cachedCreationTokensWithRatio = cachedCreationTokensWithRatio.Add(dCachedCreationTokens12h.Mul(dCacheCreationRatio12h))
 			}
 		}
 
@@ -686,6 +704,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if summary.CacheCreationTokens1h > 0 {
 		other.SetPublic("cache_creation_tokens_1h", summary.CacheCreationTokens1h)
 		other.SetPublic("cache_creation_ratio_1h", summary.CacheCreationRatio1h)
+	}
+	if summary.CacheCreationTokens12h > 0 {
+		other.SetPublic("cache_creation_tokens_12h", summary.CacheCreationTokens12h)
+		other.SetPublic("cache_creation_ratio_12h", summary.CacheCreationRatio12h)
 	}
 	cacheWriteTokens := cacheWriteTokensTotal(summary)
 	if cacheWriteTokens > 0 {
