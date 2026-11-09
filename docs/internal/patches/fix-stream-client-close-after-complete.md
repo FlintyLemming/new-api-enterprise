@@ -9,6 +9,14 @@
 | 状态 | `upstream-pending`（未提交） |
 | 上游 PR | 未提交 |
 
+## 2026-11-09 rc.49 核对
+
+上游 #7956 给 Responses、Dify 加了更精确的机制：协议处理在完成事件成功写出后调用 `sr.Done()`，扫描器等所有 goroutine 退出后，再把与之竞争的 `context.Canceled` 纠正为 `done`。Claude `message_stop` 没有接入。原实现在主循环断开分支里提前判断，会抢在上游纠正之前，并把 Responses「完成事件尚未写出就断开」也记成 eof，上游 `TestOaiResponsesStreamHandlerCompletionLifecycle` 有 4 个用例失败。
+
+合并提交 `c334b1f5e` 改为：断开分支照上游记 `client_gone`；所有 goroutine 退出后，若响应已完成、结束原因为 `context.Canceled` 且没有记录错误，调用过 `sr.Done()` 的协议记 `done`，没调用的（Claude 等）记 `eof`。上游用例与本测试都通过；把 eof 分支改回 `client_gone` 后本测试失败。
+
+剩余差异：Claude 的 `message_stop` 已读到但还没写给客户端时断开，仍记 eof，与原实现相同。彻底解决要让 Claude 流处理写出 `message_stop` 后调用 `sr.Done()`，可以与本修复一起提上游。
+
 ## 为什么要这个改动
 
 2026-11-05 起，mucr（user 422，channel 44，`/v1/messages`）约 30% 的流式请求日志里 `stream_status` 是 `end_reason=client_gone`、`end_error="context canceled"`、`status=error`，request_policy 记成 `stop / stream_not_successful`。但同一条日志的 `response_status=completed`，usage、计费都完整，用户那边也没有异常。

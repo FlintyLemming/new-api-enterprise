@@ -9,6 +9,10 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-11-09 rc.49 核对
+
+继续保留，上游仍没有按用户的 IP 数限制。上游给 Redis 用户缓存加了 `CacheExpiresAt` / `CacheMAC` 完整性校验：`UserBase` 同时保留 `ConcurrentIpLimit`，写缓存的 Lua 脚本把它放在 `ARGV[15]`；字段带 JSON tag，所以在 MAC 覆盖范围内。内部缓存 schema 仍为 v3，升级后旧缓存因缺 MAC 被拒、从数据库重建。任务插件协议路由改用上游 `RouteTaskPluginEndpoint`，`UserIpLimit()` 照旧跟在 `TokenAuth()` 后；`openai_video.retrieve` 上它在上游新增的原生任务查询转交之前。上游新增的厂商原生插件路由走 `plugin-router.go` 的同一条链，已含 `UserIpLimit()`。数据库矩阵确认 `concurrent_ip_limit` 的值在升级后保留，见[总台账 rc.49 节](../README.md#2026-11-09-同步上游-v100-rc49)。
+
 ## 2026-10-13 rc.44 核对
 
 继续保留。上游 rc.38 的「请求策略」只覆盖渠道亲和、重试与渠道健康，没有按用户的 IP 数限制。用户缓存 schema 上游仍为 v2，内部 v3 不变。

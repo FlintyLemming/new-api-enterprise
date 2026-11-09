@@ -4,7 +4,7 @@
 
 本分支（`internal-custom`）是**内部部署使用的长期定制分支**，上游的完整介绍、文档、部署指南请直接看[上游仓库](https://github.com/QuantumNous/new-api) 和 [官方文档](https://docs.newapi.ai/)。本 README 只介绍相对上游**改了什么、加了什么**。
 
-- 当前上游基线：`v1.0.0-rc.44`
+- 当前上游基线：`v1.0.0-rc.49`
 - 完整改动台账：`docs/internal/`（仅存在于本分支）
 
 ## 相对上游的主要改动

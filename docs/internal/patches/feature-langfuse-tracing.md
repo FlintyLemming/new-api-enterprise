@@ -9,6 +9,14 @@
 | 状态 | `upstream-pending` |
 | 上游 PR | 未提交 |
 
+## 2026-11-09 rc.49 核对
+
+继续保留，rc.45–rc.49 仍无 OTLP/Langfuse 导出。
+
+- `relay/channel/api_request.go`：`langfuse.BeginAttempt` 保留在共享出站边界，放在上游新加的 `ContextKeyUpstreamRequestOrigin` 写入之后、`relayClient.Do` 之前。
+- `service/tiered_settle.go`：`cache_prompt_token_semantic` 的口径参数与上游 12h 缓存写入定价、Claude 缓存写入拆分归一化同时保留；声明 `prompt_excludes_cache` 的非 Claude 渠道现在与 Claude 语义一致，未定价的缓存写入也并入 `p`。这是计费行为变化，见[总台账 rc.49 节](../README.md#2026-11-09-同步上游-v100-rc49)。
+- `go.mod`：OTel 仍为内部直接依赖 1.44.0。
+
 ## 2026-10-13 rc.44 核对
 
 继续保留：rc.37–rc.44 仍无 OTLP/Langfuse 导出，`go.mod` 里上游只有间接依赖 `go.opentelemetry.io/otel` 1.41.0，被内部直接依赖的 1.44.0 覆盖。

@@ -4,11 +4,13 @@
 
 ## 当前基线
 
-2026-10-13 同步至 `v1.0.0-rc.44`（`633b4c5b1`，GitHub Latest release），合并提交 `04f2b55c5`，详见下方 [rc.44 同步记录](#2026-10-13-同步上游-v100-rc44)。合并前先把本地 `internal-custom` 快进到 `enterprise/internal-custom`（`f8775ede8`，含 2026-09-14 远端会话提交的重置卡持卡人用户名 `286e1bd2c` 与 GHCR 镜像发布 `556468079`），备份为 `backup/internal-custom-before-rc44-20261013`；本地 `main` 快进至该 tag。`internal-custom` 与 `main` 已推送到 GitHub `enterprise`；GitLab 未推送（本机没有可用的 GitLab SSH 凭据）。随后手动触发 GHCR 镜像构建，结果记在[部署台账 §13](patches/2026-08-15-langfuse-local-deployment.md#13-2026-10-13-rc44-镜像构建)。2026-10-15 已部署到 8850（`:internal-custom-20261013-bd8600f`），彩排、切换与验证见[部署台账 §14](patches/2026-08-15-langfuse-local-deployment.md#14-2026-10-15-rc44-镜像上线)。
+2026-11-09 同步至 `v1.0.0-rc.49`（`48a6c87f9`），合并提交 `c334b1f5e`，详见下方 [rc.49 同步记录](#2026-11-09-同步上游-v100-rc49)。合并前本地与 `enterprise/internal-custom` 一致（`f475dbbb8`），备份为 `backup/internal-custom-before-rc49-20261109`；本地 `main` 快进至该 tag。随后 `7bbbaf593` 让版本 tag 构建同时推 `:internal-custom` 镜像，不再使用同名 git tag 与 Release（见 rc.49 记录「浮动镜像 tag」）。本次尚未推送、打 tag 或部署。
+
+上一基线：2026-10-13 同步至 `v1.0.0-rc.44`（`633b4c5b1`，GitHub Latest release），合并提交 `04f2b55c5`，详见下方 [rc.44 同步记录](#2026-10-13-同步上游-v100-rc44)。合并前先把本地 `internal-custom` 快进到 `enterprise/internal-custom`（`f8775ede8`，含 2026-09-14 远端会话提交的重置卡持卡人用户名 `286e1bd2c` 与 GHCR 镜像发布 `556468079`），备份为 `backup/internal-custom-before-rc44-20261013`；本地 `main` 快进至该 tag。`internal-custom` 与 `main` 已推送到 GitHub `enterprise`；GitLab 未推送（本机没有可用的 GitLab SSH 凭据）。随后手动触发 GHCR 镜像构建，结果记在[部署台账 §13](patches/2026-08-15-langfuse-local-deployment.md#13-2026-10-13-rc44-镜像构建)。2026-10-15 已部署到 8850（`:internal-custom-20261013-bd8600f`），彩排、切换与验证见[部署台账 §14](patches/2026-08-15-langfuse-local-deployment.md#14-2026-10-15-rc44-镜像上线)。
 
 2026-11-05 在基线上追加两项直接提交并上线 8850：对话内 system 消息内联开关 `62c9e13c8`（[部署台账 §15](patches/2026-08-15-langfuse-local-deployment.md#15-2026-11-05-对话内-system-消息内联开关上线)）与流式"完成后客户端断开"修复 `ea09002bc`（[部署台账 §16](patches/2026-08-15-langfuse-local-deployment.md#16-2026-11-05-流式完成后客户端断开误记-client_gone-修复上线)）。2026-11-06 在 `internal-custom` 上打 tag `v1.0.0-rc.44-internal.20261106` 触发 tag 构建，见[部署台账 §17](patches/2026-08-15-langfuse-local-deployment.md#17-2026-11-06-打-tag-v100-rc44-internal20261106)。2026-11-09 追加中国大陆节假日计价 `d4e7f7c18`，打 tag `v1.0.0-rc.44-internal.20261109` 并移动浮动 tag `internal-custom`，8850 当前运行 `:internal-custom`（revision `446695161`），见[部署台账 §19](patches/2026-08-15-langfuse-local-deployment.md#19-2026-11-09-中国大陆节假日计价上线)。
 
-上一基线：2026-09-09 同步 `v1.0.0-rc.36`（合并提交 `a72e8c116`，见 [rc.36 同步与数据库验证记录](sync-rc36-2026-09-09.md)），8850 环境此前运行 `new-api:rc36-e6b8fc10d`（[部署台账 §11](patches/2026-08-15-langfuse-local-deployment.md#11-2026-09-12-重置卡--缓存统计口径镜像上线)）。
+更早基线：2026-09-09 同步 `v1.0.0-rc.36`（合并提交 `a72e8c116`，见 [rc.36 同步与数据库验证记录](sync-rc36-2026-09-09.md)），8850 环境此前运行 `new-api:rc36-e6b8fc10d`（[部署台账 §11](patches/2026-08-15-langfuse-local-deployment.md#11-2026-09-12-重置卡--缓存统计口径镜像上线)）。
 
 ## 分支模型
 
@@ -40,9 +42,9 @@
 | `fix/log-duration-ms` | 日志总耗时毫秒精度：`other.duration_ms` + 前端回退 `use_time` | `upstream-pending` | 未提交 | `0da33748` | 2026-09-01 | [详情](patches/fix-log-duration-ms.md) |
 | `feat/subscription-reset-card` | 订阅重置卡：管理员发卡、用户自助清零当前周期用量（含 2026-09-14 持卡人用户名列） | `internal-only` | 未提交 | 线性合入，tip `496f1674e`；`fcf8e49a1` | 2026-09-12 | [设计](../superpowers/specs/2026-09-11-subscription-reset-card-design.md) |
 | `feature/usage-stats-cache-caliber` | 用量统计 `prompt_tokens` 缓存口径全局归一化开关（不影响计费） | `internal-only` | 未提交 | `e6b8fc10d` | 2026-09-12 | [设计](../superpowers/specs/2026-09-09-usage-stats-cache-normalization-design.md) |
-| —（直接提交） | 镜像发布 workflow 改推本仓库 GHCR | `internal-only` | 不适用 | `556468079` | 2026-09-14 | [部署台账 §12](patches/2026-08-15-langfuse-local-deployment.md#12-2026-09-14-镜像发布改走-ghcr重置卡持卡人用户名) |
+| —（直接提交） | 镜像发布 workflow 改推本仓库 GHCR；版本 tag 构建同时推浮动镜像 `:internal-custom` | `internal-only` | 不适用 | `556468079`；`7bbbaf593` | 2026-09-14 | [部署台账 §12](patches/2026-08-15-langfuse-local-deployment.md#12-2026-09-14-镜像发布改走-ghcr重置卡持卡人用户名) |
 | —（直接提交） | 渠道开关：Claude Messages 对话内 system 消息内联为 `<system-reminder>`，保住 DeepSeek 等上游前缀缓存 | `internal-only` | 未提交 | `62c9e13c8` | 2026-11-05 | [详情](patches/feat-inline-claude-system-messages.md) |
-| —（直接提交） | 流式：客户端在协议终止事件（如 `message_stop`）之后、上游 EOF 之前断开时按 `eof` 结束，不再误记 `client_gone` | `upstream-pending` | 未提交 | `ea09002bc` | 2026-11-05 | [详情](patches/fix-stream-client-close-after-complete.md) |
+| —（直接提交） | 流式：客户端在协议终止事件（如 `message_stop`）之后、上游 EOF 之前断开时按 `eof` 结束，不再误记 `client_gone` | `upstream-pending` | 未提交 | `ea09002bc`；rc.49 改写于 `c334b1f5e` | 2026-11-05 | [详情](patches/fix-stream-client-close-after-complete.md) |
 | —（直接提交） | 计费表达式 `is_workday(tz)`：按小米节假日 API 同步的中国大陆节假日/调休日历判断工作日，用于峰谷计价 | `internal-only` | 未提交 | `d4e7f7c18` | 2026-11-09 | [详情](patches/feat-cn-holiday-workday.md) |
 
 ## 已归档
@@ -52,6 +54,84 @@
 | `feat/anthropic-messages-cache-usage` | Anthropic 客户端缓存用量口径 | `upstream-merged`：#7137 / #7170 默认扣除缓存并修正流式 usage；移除内部开关和转换实现 | 2026-09-09 | [详情](patches/feat-anthropic-messages-cache-usage.md) |
 | `fix/oai-to-claude-tool-call-stream` | 末帧工具参数与重复 start 修复 | `upstream-merged`：#7137 / #7170 的工具状态机覆盖原修复，保留 3 个行为回归测试 | 2026-09-09 | [详情](patches/fix-oai-to-claude-tool-call-stream.md) |
 | —（backport） | 异步任务退款时同步减少 `used_quota` | 上游已收编：同步 rc.30 时确认 `58d4e9bd3` 即合并 merge-base，语义一致无残留 | 2026-09-01 | [详情](patches/backport-6795-async-task-refund-used-quota.md) |
+
+## 2026-11-09 同步上游 v1.0.0-rc.49
+
+### 范围
+
+- 上游 rc.44 → rc.49：137 个提交、558 个文件；双方都改过的文件 72 个，其中 20 个冲突（Go 与仓库根文件 11、前端 9，含 7 个语言文件），其余自动合并。自动合并文件逐个比对了内部改动行数（合并前相对 rc.44、合并后相对 rc.49），除下面主动调整的文件外完全一致；`text_quota.go` / `tiered_settle.go` 变少是因为上游已有同样的 12h 缓存与 Claude 缓存写入处理，以及结构体重新对齐。
+- 自动合并带来一处编译问题：`relaykit/.../to_claude_messages_resp_test.go` 双方都加了 `kitutil` import，删掉重复的一行。
+
+### 逐项核对
+
+| 内部改动 | 上游是否已有等价实现 | 冲突与适配 |
+| --- | --- | --- |
+| Langfuse 追踪 | 无 | `doRequest` 里 `langfuse.BeginAttempt` 放在上游新加的 `ContextKeyUpstreamRequestOrigin` 之后；`go.mod` 保留 OTel 1.44.0 直接依赖 |
+| 渠道 `cache_prompt_token_semantic` | 无 | 见下方「计费」 |
+| 剥离 Claude 计费头 / 对话内 system 消息内联 | 无 | 渠道抽屉保留两个开关；上游去掉了 passthrough 字段的「高级自定义渠道除外」条件，照上游 |
+| Exchange Key | 无 | `GetOptions` 过滤条件并入上游新增的 `ResendKeyConfigured` |
+| 每用户并发 IP 限制 | 无 | 上游 rc.45+ 给 Redis 用户缓存加了 `CacheExpiresAt` / `CacheMAC` 完整性校验；`ConcurrentIpLimit` 写入哈希（Lua `ARGV[15]`），带 JSON tag，所以被 MAC 覆盖。内部缓存 schema 仍为 v3，旧缓存因无 MAC 被拒后从数据库重建。任务插件协议路由改用上游 `RouteTaskPluginEndpoint`，`openai_video.retrieve` 的 `UserIpLimit()` 放在上游新加的原生任务查询转交之前；上游新增的插件原生路由在自动合并后的 `plugin-router.go` 里已带 `UserIpLimit()` |
+| 日志毫秒耗时 | 无 | 错误日志保留毫秒，并接上上游新增的上游 URL 脱敏参数；CSV 导出测试两边用例都保留 |
+| 流式完成后客户端断开 | 部分：上游 #7956 给 Responses / Dify 加了「完成事件写出后 `sr.Done()`、全部 goroutine 退出后再纠正取消」的机制，Claude `message_stop` 没有接入 | 见下方「流式」 |
+| 订阅重置卡、用量统计缓存口径、节假日计价、GHCR 发布 | 无 | 自动合并，测试通过 |
+
+### 计费（表达式计费与倍率计费都有变化）
+
+1. 上游（#7965、94cc3ff09）：OpenAI 12 小时缓存写入有自己的价格（表达式变量 `cc12h`，倍率 `CacheCreationRatio12h`），没单独定价时按 `cc` 的 2 倍计；Claude 语义下缓存写入总量缺 5m/1h 拆分时，未标注部分按 5m 计；**表达式没有给 `cc` 单价时，Claude 语义的缓存写入现在按输入价并入 `p`**（此前不收费）。这一条直接影响 8850 上 Anthropic 语义、表达式里没写 `cc` 的模型，上线后这些请求的费用会上升。
+2. `BuildTieredTokenParams` 保留内部 `promptTokensIncludeCache` 参数，分三支：Claude 语义（口径不含缓存）照上游；含缓存口径照上游 GPT 分支（含 12h）；**声明 `prompt_excludes_cache` 的非 Claude 渠道**与 Claude 语义保持一致：未定价的缓存读、缓存写都并入 `p`（此前只并缓存读），12h 写入未定价时按 2 倍并入 `cc`。`len` 不变。
+3. 倍率计费（`text_quota.go`）：含缓存口径用上游的 12h 拆分；声明不含缓存的非 Claude 渠道同样按 12h 倍率单算。`hasBillableUsage` 除 Claude 语义外，也把「口径不含缓存且只有缓存用量」的请求算作可计费。
+4. 测试：`TestBuildTieredTokenParams_PromptCacheInclusionFlag` 的「declared exclusive」用例改为缓存读写都并入（P=1300），新增「`cr` 有单价时只并入写入」（P=1100）；上游新加的 3 处测试调用补上口径参数（`!isClaude`）。
+
+### 流式
+
+内部 `ea09002bc` 原来在主循环的客户端断开分支里直接判断「响应已完成 → 记 eof」。这会抢在上游 #7956 的纠正逻辑之前，并把 Responses「完成事件还没写出客户端就断开」也记成 eof，上游 `TestOaiResponsesStreamHandlerCompletionLifecycle` 有 4 个用例失败。现在改为：断开分支照上游记 `client_gone`；所有 goroutine 退出后，响应已完成、结束原因是 `context.Canceled`、且没有记录错误时，调用过 `sr.Done()` 的协议记 `done`（上游原逻辑），没调用的（Claude 等）记 `eof`（内部原意）。上游用例与内部 `TestStreamScannerHandler_ClientCloseAfterCompletedIsNormalEnd` 都通过；把 eof 分支改回 `client_gone` 后内部用例失败，确认它仍守着这条行为。
+
+### 浮动镜像 tag
+
+`:internal-custom` 镜像表示"修改版最新版"，此前靠推同名 git tag `internal-custom` 触发构建，`release.yml` 因此也会发一个同名 Release，而且 tag 与分支同名，本地 git 命令会报 ambiguous。`7bbbaf593` 改为每次版本 tag 构建时，用该 tag 自己的两个架构镜像同时生成 `:latest` 与 `:internal-custom` 清单并签名。以后不再打或移动 `internal-custom` git tag，[部署台账 §17](patches/2026-08-15-langfuse-local-deployment.md#17-2026-11-06-打-tag-v100-rc44-internal20261106) 里的移动方法作废。本地 tag 已删除；`enterprise` 上的同名 tag 与 Release 待确认后删除。手动分支构建（`docker-image-branch.yml`）跑 `internal-custom` 分支时仍会写 `:internal-custom`，需要时注意先后顺序。另外 `/api/status` 版本号会显示具体版本 tag，不再是 `internal-custom`。
+
+### 部署注意
+
+1. **计费**：见上方「计费」第 1、2 条。上线前应检查 8850 上走 Anthropic 语义或声明 `prompt_excludes_cache`、且表达式没写 `cc` 的模型，决定是补 `cc` 单价还是接受按输入价收缓存写入。
+2. **Redis 鉴权缓存完整性**：MAC 用 `CRYPTO_SECRET` 派生，多个节点共用 Redis 时 `CRYPTO_SECRET` 必须一致，否则缓存反复校验失败、回落数据库。升级后旧缓存全部失效一次。
+3. **数据库**：GORM 组版本不变。`audit_logs`（日志库）新增联合索引 `idx_audit_time_event`，`quota_data` 新增 `cache_read_tokens`、`cache_creation_tokens` 两列，大表上建索引会有锁表时间，部署前照例先做逻辑备份。
+4. **构建工具**：上游 `go.mod` 要求 Go 1.26.10；前端改用 Bun 1.4.4 的 `bun check`。本机 Bun 是 1.3.14，`bun run typecheck` 跑不起来，本次用同一套 `tsgo -b` 代替；Dockerfile 用的是上游自己的 Bun 版本。
+5. **其他上游变化**：Resend 邮件服务商、通知按类型开关、渠道优先级拖拽、DeepSeek V4.1 Flash / 搜索与抓取、任务插件按厂商原生路径提供服务、普通渠道参与插件共享端点竞争、API Key 可读取所属用户额度、HTTP/2 健康检查（可选）等。
+
+### 验证
+
+| 命令（仓库根目录，另有注明除外） | 结果 |
+| --- | --- |
+| `go build ./...`、`go vet ./...` | 通过 |
+| `go test ./...` | 52 个包通过；不把未配置 DSN 时跳过的集成测试计为数据库验证 |
+| `cd relaykit && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...` | 通过（9 个包） |
+| `cd tokenkit && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...` | 通过 |
+| `go test -race ./service/langfuse/...` | 通过（324.480s） |
+| `cd web && bun install --frozen-lockfile` | 通过，lockfile 不变 |
+| `cd web && ./node_modules/.bin/tsgo -b`（`bun check -b` 的替代，见部署注意第 4 条） | 通过 |
+| `cd web && bun run test` | 218 个文件、2615 个用例通过 |
+| `cd web && bun run lint` | 未通过：151 个 error；同一 oxlint 配置下纯 rc.49 为 152 个，忽略行号比对后内部没有新增 error（少的一个仍是 `pricing-section.tsx` 嵌套三元） |
+| `cd web && bun run build` | 通过，产物约 67.7 MB / gzip 20.8 MB |
+| `cd web && bun run i18n:sync` | 七种语言 missingCount=0；生成的 `_reports/*.untranslated.json` 改动已还原 |
+
+### 数据库矩阵
+
+只使用本机新建的 `newapi-rc49-review-*` 容器和会话临时目录里的 SQLite 文件，没有连接生产库。同一份检查程序分别编译为合并前内部版 `f475dbbb8`、上游 `v1.0.0-rc.49`、合并版 `c334b1f5e` 三个二进制。每个用例先用一个版本建库并写入代表性数据，再用合并版连续启动两次（`InitDB` → `authz.Init` → `MigrateRetiredFrontendOptions` → `InitOptionMap` → 独立日志库 `InitLogDB`）。fresh 用合并版建库，internal 用合并前内部版，upstream 用 rc.49，legacy 用内部版建库后把 `idx_users_aff_code` 唯一索引换成同名 UNIQUE 约束（模拟 pgloader 遗留）。
+
+| 引擎 | 实测版本 | fresh | internal 升级 | upstream 升级 | legacy |
+| --- | --- | --- | --- | --- | --- |
+| SQLite | 3.50.4（Go driver 实测） | 通过 | 通过 | 通过 | — |
+| MySQL | 8.4.5 | 通过 | 通过 | 通过 | — |
+| MySQL | 5.7.44 | 通过 | 通过 | 通过 | — |
+| PostgreSQL | 15.17 | 通过 | 通过 | 通过 | 通过 |
+| PostgreSQL | 9.6.24 | 通过 | 通过 | 通过 | 通过 |
+
+每格检查：用户额度和中文、token 额度、渠道设置 JSON（含内部的剥离计费头、system 内联开关）、prefill JSON、decimal 价格、`quota_data` 与审计日志行、`HolidayCalendar` 等四个内部 option、分离日志库里带 `duration_ms` 的日志都保留；用户名、`aff_code`、token key、prefill name、PAT `token_hash`、审计 `event_id` 的重复插入仍被拒；合并后 `quota_data` 两个新列和 `audit_logs.idx_audit_time_event` 存在；内部建库的 `users.concurrent_ip_limit` 值与 `subscription_reset_cards` 行保留，从上游库升级时这两项被补建；两次启动后完整 schema 元数据一致，种子阶段已有的索引和约束全部还在；legacy 用例的遗留约束被删除并重建为唯一索引。MySQL 5.7.8 这一最小补丁版本仍未单独验证（同前两次记录）。验证程序和驱动脚本只放在会话临时目录，未写入仓库；四个测试容器和三个临时 worktree 已删除。
+
+### 遗留
+
+- rc.44 记录里的遗留项都还在：Langfuse 不追踪 Responses WebSocket；`controller.Relay` panic 时不退预扣；任务产物下载的 Bearer 回退未接 IP 限制；`controller/option.go` 两条中文硬编码提示。
+- Claude 流没有接入上游的 `sr.Done()` 机制，所以「`message_stop` 已读到但还没写给客户端时断开」仍会记成 eof，与 rc.44 时的行为一样。要彻底区分，需要让 Claude 流处理在写出 `message_stop` 后调用 `sr.Done()`，可以和该修复一起提上游。
 
 ## 2026-10-13 同步上游 v1.0.0-rc.44
 
