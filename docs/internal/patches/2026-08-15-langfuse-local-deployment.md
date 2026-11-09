@@ -344,3 +344,13 @@ SELECT request_id FROM newapi.logs WHERE type IN (2,5)
 - 无数据库迁移，未做彩排。compose 备份为 `compose.yaml.bak-20261106-internal-custom-tag`，只改了 image 行。`pull_policy: never` 保持不变，所以 tag 移动后要先手动 `docker pull ghcr.io/flintylemming/new-api-enterprise:internal-custom`，再执行 `docker compose up -d --no-deps --wait new-api`。本次 08:45:45–08:46:30 UTC 切换，结果 healthy，重启次数 0。
 - 验证：`/api/status` 版本为 `internal-custom`（取 tag 名，不再带日期和 sha，要靠 image revision 标签确认具体版本），首页 HTTP 200。切换后 channel 44 出现的 `DeepSeek V4.1 supports text and image content only; got 'tool_reference'`（user 420）在切换前就以每小时约 10–20 次的频率存在，与本次无关。
 - 回滚：把 compose 改回 `:internal-custom-20261105-ea09002`，再执行同一条 `up -d` 命令。
+
+## 19. 2026-11-09 中国大陆节假日计价上线
+
+- 改动：计费表达式 `is_workday(tz)` 与节假日日历同步任务，`d4e7f7c18`（[详情](feat-cn-holiday-workday.md)），外加根 README 提交 `446695161`。
+- tag：轻量 tag `v1.0.0-rc.44-internal.20261109` 与浮动 tag `internal-custom` 都指向 `446695161`，已推送 GitHub `enterprise`（浮动 tag 用 `git push -f enterprise refs/tags/internal-custom` 移动）。
+- 构建：dated tag 的 Docker [run 42551572781](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42551572781) 与 Release [run 42551572761](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42551572761)，浮动 tag 的 Docker [run 42551650107](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42551650107) 与 Release [run 42551650032](https://github.com/FlintyLemming/new-api-enterprise/actions/runs/42551650032)，全部成功（Docker 约 4–5 分钟）。`:v1.0.0-rc.44-internal.20261109` 多架构清单 `sha256:f2eb8d6bb7cdb935af141b3174f1a3152fdb87f5b2cc6a6e310c0873b0e40b1b`；`:internal-custom` 与 `:latest` 均为 `sha256:79be5cd31b530f94f61a4e5cef1d423519dd287ec48b5ee8803ea731ddd53575`。
+- 切换前把旧镜像在本地另打 tag `ghcr.io/flintylemming/new-api-enterprise:internal-custom-0c5d6ae`（`sha256:de453184bfed…`，revision `0c5d6aebc`）。`docker pull` 后本地 image `sha256:06c1798ed34bed87ee708280fd60c198d15e71037099b4b5b3480899d6a07d0a`，revision `446695161`。
+- 无数据库迁移，未做彩排，compose 未改。02:39:07–02:39:50 UTC 执行 `docker compose up -d --no-deps --wait --wait-timeout 180 new-api`，容器 02:39:19 启动，healthy，重启 0 次；PostgreSQL、ClickHouse、Redis 未重建。
+- 验证：`/api/status` 版本 `internal-custom`，首页 HTTP 200。`holiday_calendar_sync` 任务 02:39:22 UTC `succeeded`，覆盖 2011–2027 年，`changed=true`；`/api/holiday_calendar` 返回日历；启动后两分钟日志无错误。切换前已确认容器内可访问 `api.comm.miui.com`。
+- 回滚：compose 的 image 改为 `:internal-custom-0c5d6ae`，再执行同一条 `up -d` 命令。`HolidayCalendar` option 与 `system_tasks` 里的新行旧版本会忽略，无需清理。
