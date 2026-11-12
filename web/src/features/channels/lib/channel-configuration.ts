@@ -87,6 +87,8 @@ const CONFIGURATION_BLOCKS = {
       'http_protocol',
       'http2_connection_shards',
       'tls_insecure_skip_verify',
+      'output_tokens_per_second',
+      'output_pacing_non_stream',
       'cache_prompt_token_semantic',
       'disable_task_polling_sleep',
     ],
@@ -182,6 +184,8 @@ export function getChannelConfigurationState(
       (values.http_protocol && values.http_protocol !== 'auto') ||
       (values.http2_connection_shards ?? 1) > 1 ||
       values.tls_insecure_skip_verify ||
+      (values.output_tokens_per_second ?? 0) !== 0 ||
+      values.output_pacing_non_stream ||
       (values.cache_prompt_token_semantic &&
         values.cache_prompt_token_semantic !== 'auto') ||
       values.disable_task_polling_sleep

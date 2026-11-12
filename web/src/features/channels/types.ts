@@ -98,6 +98,8 @@ export interface ChannelSettings {
     | 'prompt_excludes_cache'
     | string
   tls_insecure_skip_verify?: boolean
+  output_tokens_per_second?: number
+  output_pacing_non_stream?: boolean
 }
 
 export interface ChannelOtherSettings {

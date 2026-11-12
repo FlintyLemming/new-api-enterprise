@@ -305,6 +305,8 @@ const SENSITIVE_FORM_FIELDS = [
   'http_protocol',
   'http2_connection_shards',
   'tls_insecure_skip_verify',
+  'output_tokens_per_second',
+  'output_pacing_non_stream',
   'cache_prompt_token_semantic',
   'pass_through_body_enabled',
   'responses_websocket_enabled',
@@ -2244,6 +2246,57 @@ export function ChannelMutateDrawer({
         </FormItem>
       )}
     />
+  )
+
+  const outputPacingFields = (
+    <>
+      <FormField
+        control={form.control}
+        name='output_tokens_per_second'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('Output Speed Limit (tokens/s)')}</FormLabel>
+            <FormControl>
+              <Input
+                type='number'
+                placeholder='0'
+                {...field}
+                onChange={(e) => field.onChange(Number(e.target.value))}
+              />
+            </FormControl>
+            <FormDescription>
+              {t(
+                'Release generated output to the client at no more than this many tokens per second. The upstream response is still read at full speed and buffered in memory. 0 disables the limit.'
+              )}
+            </FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name='output_pacing_non_stream'
+        render={({ field }) => (
+          <FormItem className='flex items-center justify-between px-4 py-3'>
+            <div className='space-y-0.5'>
+              <FormLabel>{t('Hold Non-Stream Responses')}</FormLabel>
+              <FormDescription>
+                {t(
+                  'Hold a successful non-stream response until its output tokens would have been released at the speed limit. Long holds can exceed client or proxy timeouts.'
+                )}
+              </FormDescription>
+            </div>
+            <FormControl>
+              <Switch
+                disabled={sensitiveLocked}
+                checked={field.value}
+                onCheckedChange={field.onChange}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+    </>
   )
 
   const cachePromptTokenSemanticFields = (
@@ -4941,6 +4994,7 @@ export function ChannelMutateDrawer({
                 {httpProtocolFields}
                 {httpShardsFields}
                 {tlsInsecureSkipVerifyFields}
+                {outputPacingFields}
                 {cachePromptTokenSemanticFields}
               </fieldset>
             </div>

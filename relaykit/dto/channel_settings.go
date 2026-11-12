@@ -52,6 +52,13 @@ type ChannelSettings struct {
 	// TLSInsecureSkipVerify accepts upstream certificates that fail
 	// verification, such as self-signed ones, for this channel only.
 	TLSInsecureSkipVerify bool `json:"tls_insecure_skip_verify,omitempty"`
+	// OutputTokensPerSecond caps how fast this channel's generated output is
+	// released to the client. The upstream response is still read at full
+	// speed and held in memory. Zero disables pacing.
+	OutputTokensPerSecond int `json:"output_tokens_per_second,omitempty"`
+	// OutputPacingNonStream also holds a successful non-stream response until
+	// its output tokens would have been released at OutputTokensPerSecond.
+	OutputPacingNonStream bool `json:"output_pacing_non_stream,omitempty"`
 }
 
 // BindsTaskPlugin reports whether the channel is bound to the task plugin,

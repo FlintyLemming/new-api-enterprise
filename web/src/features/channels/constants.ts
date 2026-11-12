@@ -365,6 +365,8 @@ export const ERROR_MESSAGES = {
     'HTTP/2 connection shards must be between 1 and 8',
   INVALID_HTTP1_WITH_SHARDS:
     'HTTP/2 connection shards must be 1 when HTTP/1.1 is selected',
+  INVALID_OUTPUT_TOKENS_PER_SECOND:
+    'Output speed limit must be a whole number of at least 0',
   CREATE_FAILED: 'Failed to create channel',
   UPDATE_FAILED: 'Failed to update channel',
   DELETE_FAILED: 'Failed to delete channel',

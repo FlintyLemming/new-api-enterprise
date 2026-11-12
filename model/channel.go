@@ -1019,6 +1019,9 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
 	}
+	if channelParams.OutputTokensPerSecond < 0 {
+		return fmt.Errorf("invalid output_tokens_per_second: %d", channelParams.OutputTokensPerSecond)
+	}
 	// Allowed literals mirror ChannelSettings.CachePromptTokenSemantic in
 	// relaykit/dto; model/ cannot import service/, so they are hardcoded here.
 	switch channelParams.CachePromptTokenSemantic {

@@ -1757,6 +1757,83 @@ test('turning on the upstream TLS verification skip saves it in the channel sett
   })
 })
 
+test('setting an output speed limit with the non-stream hold saves both in the channel setting', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const otherTab = screen.getByRole('tab', { name: /Other Settings/ })
+  await user.click(otherTab)
+  const rate = screen.getByRole('spinbutton', {
+    name: 'Output Speed Limit (tokens/s)',
+  })
+  await user.clear(rate)
+  await user.type(rate, '30')
+  await user.click(
+    screen.getByRole('switch', { name: 'Hold Non-Stream Responses' })
+  )
+  expect(otherTab).toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { setting: string }
+  expect(JSON.parse(payload.setting)).toMatchObject({
+    output_tokens_per_second: 30,
+    output_pacing_non_stream: true,
+  })
+})
+
+test('a saved output speed limit marks Other Settings and clearing it saves the setting without it', async () => {
+  editingChannel = {
+    ...editingChannel,
+    setting: '{"output_tokens_per_second":30}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const otherTab = screen.getByRole('tab', { name: /Other Settings/ })
+  expect(otherTab).toHaveAccessibleName(/Configured/)
+  await user.click(otherTab)
+  const rate = screen.getByRole('spinbutton', {
+    name: 'Output Speed Limit (tokens/s)',
+  })
+  expect(rate).toHaveValue(30)
+  await user.clear(rate)
+  expect(otherTab).not.toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { setting: string }
+  expect(JSON.parse(payload.setting)).not.toHaveProperty(
+    'output_tokens_per_second'
+  )
+})
+
+test('a negative output speed limit shows a field error and is not saved', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Other Settings/ }))
+  const rate = screen.getByRole('spinbutton', {
+    name: 'Output Speed Limit (tokens/s)',
+  })
+  fireEvent.change(rate, { target: { value: '-5' } })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  expect(
+    await screen.findByText(
+      'Output speed limit must be a whole number of at least 0'
+    )
+  ).toBeInTheDocument()
+  expect(rate).toHaveAttribute('aria-invalid', 'true')
+  expect(put).not.toHaveBeenCalled()
+})
+
 test('an invalid edit switches categories and replaces configured styling with the field error', async () => {
   const user = userEvent.setup()
   render(<ConfigurationHarness currentRow={editingChannel} />)
