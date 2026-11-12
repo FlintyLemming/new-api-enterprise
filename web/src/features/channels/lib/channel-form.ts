@@ -296,6 +296,8 @@ export const channelFormSchema = z
       .enum(['auto', 'prompt_includes_cache', 'prompt_excludes_cache'])
       .optional(),
     tls_insecure_skip_verify: z.boolean().optional(),
+    output_tokens_per_second: z.number().optional(),
+    output_pacing_non_stream: z.boolean().optional(),
     pass_through_body_enabled: z.boolean().optional(),
     responses_websocket_enabled: z.boolean().optional(),
     system_prompt: z.string().optional(),
@@ -448,6 +450,15 @@ export const channelFormSchema = z
         ERROR_MESSAGES.INVALID_HTTP1_WITH_SHARDS
       )
     }
+
+    const outputRate = data.output_tokens_per_second ?? 0
+    if (!Number.isInteger(outputRate) || outputRate < 0) {
+      addRequiredIssue(
+        ctx,
+        'output_tokens_per_second',
+        ERROR_MESSAGES.INVALID_OUTPUT_TOKENS_PER_SECOND
+      )
+    }
   })
 
 export type ChannelFormValues = z.infer<typeof channelFormSchema>
@@ -494,6 +505,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   http2_connection_shards: 1,
   cache_prompt_token_semantic: CACHE_PROMPT_TOKEN_SEMANTIC_AUTO,
   tls_insecure_skip_verify: false,
+  output_tokens_per_second: 0,
+  output_pacing_non_stream: false,
   pass_through_body_enabled: false,
   responses_websocket_enabled: false,
   system_prompt: '',
@@ -548,6 +561,8 @@ export function transformChannelToFormDefaults(
       | 'prompt_includes_cache'
       | 'prompt_excludes_cache',
     tls_insecure_skip_verify: false,
+    output_tokens_per_second: 0,
+    output_pacing_non_stream: false,
     pass_through_body_enabled: false,
     responses_websocket_enabled: false,
     system_prompt: '',
@@ -577,6 +592,11 @@ export function transformChannelToFormDefaults(
           parsed.cache_prompt_token_semantic
         ),
         tls_insecure_skip_verify: parsed.tls_insecure_skip_verify === true,
+        output_tokens_per_second:
+          typeof parsed.output_tokens_per_second === 'number'
+            ? parsed.output_tokens_per_second
+            : 0,
+        output_pacing_non_stream: parsed.output_pacing_non_stream === true,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
         responses_websocket_enabled:
           parsed.responses_websocket_enabled === true,
@@ -744,6 +764,12 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
   }
   if (formData.tls_insecure_skip_verify === true) {
     settingObj.tls_insecure_skip_verify = true
+  }
+  if ((formData.output_tokens_per_second ?? 0) > 0) {
+    settingObj.output_tokens_per_second = formData.output_tokens_per_second
+  }
+  if (formData.output_pacing_non_stream === true) {
+    settingObj.output_pacing_non_stream = true
   }
 
   const cacheSemantic = normalizeCachePromptTokenSemantic(

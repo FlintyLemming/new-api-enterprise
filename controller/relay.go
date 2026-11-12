@@ -83,6 +83,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		recorder    *langfuse.Recorder
 	)
 
+	switch relayFormat {
+	case types.RelayFormatOpenAI, types.RelayFormatClaude, types.RelayFormatGemini, types.RelayFormatOpenAIResponses:
+		// Registered before every other defer, so LIFO closes the pacer last:
+		// the error response and stream tail written below still pass through
+		// it before the handler returns.
+		pacer := helper.StartOutputPacing(c)
+		defer pacer.Close()
+	}
+
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)

@@ -50,6 +50,32 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestChannelValidateSettingsOutputTokensPerSecond(t *testing.T) {
+	tests := []struct {
+		name    string
+		rate    int
+		wantErr bool
+	}{
+		{name: "unset disables pacing", rate: 0},
+		{name: "positive rate", rate: 30},
+		{name: "negative rate rejected", rate: -1, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			channel := &Channel{}
+			channel.SetSetting(dto.ChannelSettings{OutputTokensPerSecond: tt.rate})
+			err := channel.ValidateSettings()
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "output_tokens_per_second")
+		})
+	}
+}
+
 func TestChannelValidateSettingsCachePromptTokenSemantic(t *testing.T) {
 	tests := []struct {
 		name    string

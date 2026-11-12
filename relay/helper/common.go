@@ -155,21 +155,24 @@ func FlushWriter(c *gin.Context) (err error) {
 	}
 
 	flusher.Flush()
-	// Gin's http.Flusher wrapper discards the underlying FlushError result.
-	// Flush wrappers first so their buffers are preserved, then surface any
-	// stored write error from an error-aware writer underneath them.
-	var writer http.ResponseWriter = c.Writer
+	return writerFlushError(c.Writer)
+}
+
+// writerFlushError surfaces the stored write error of the first error-aware
+// writer in the chain under writer. Gin's http.Flusher wrapper discards the
+// underlying FlushError result, so callers flush the wrappers first to keep
+// their buffers, then ask here for the error.
+func writerFlushError(writer http.ResponseWriter) error {
 	for {
 		if flusher, ok := writer.(interface{ FlushError() error }); ok {
 			return flusher.FlushError()
 		}
 		unwrapper, ok := writer.(interface{ Unwrap() http.ResponseWriter })
 		if !ok {
-			break
+			return nil
 		}
 		writer = unwrapper.Unwrap()
 	}
-	return nil
 }
 
 func requestContextDone(c *gin.Context) bool {
