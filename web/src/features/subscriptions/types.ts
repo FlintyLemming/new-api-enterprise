@@ -153,3 +153,8 @@ export type SubscriptionsDialogType =
   | 'update'
   | 'toggle-status'
   | 'reset-subscriptions'
+  | 'settings'
+
+export interface SubscriptionSettings {
+  new_user_plan_id: number
+}

@@ -30,6 +30,7 @@ import type {
   SubscriptionPayResponse,
   SubscriptionPayRequest,
   SelfSubscriptionData,
+  SubscriptionSettings,
 } from './types'
 
 // ============================================================================
@@ -63,6 +64,24 @@ export async function patchPlanStatus(
   const res = await api.patch(`/api/subscription/admin/plans/${id}`, {
     enabled,
   })
+  return res.data
+}
+
+// ============================================================================
+// Admin Subscription Settings
+// ============================================================================
+
+export async function getSubscriptionSettings(): Promise<
+  ApiResponse<SubscriptionSettings>
+> {
+  const res = await api.get('/api/subscription/admin/settings')
+  return res.data
+}
+
+export async function updateSubscriptionSettings(
+  data: SubscriptionSettings
+): Promise<ApiResponse<SubscriptionSettings>> {
+  const res = await api.put('/api/subscription/admin/settings', data)
   return res.data
 }
 

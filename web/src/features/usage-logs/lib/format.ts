@@ -578,6 +578,7 @@ const AUDIT_TEMPLATES: Record<string, string> = {
   'subscription.plan_create': 'Created a subscription plan',
   'subscription.plan_update': 'Updated a subscription plan',
   'subscription.bind': 'Bound a subscription',
+  'subscription.settings_update': 'Updated subscription settings',
   'subscription.user_quota_reset':
     'Administrator reset the quota of subscription plan {{plan_title}} (ID: {{plan_id}})',
   // Logs

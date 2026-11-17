@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/cachex"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/samber/hot"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -555,6 +556,36 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		return nil, err
 	}
 	return sub, nil
+}
+
+// SubscriptionSourceNewUser marks subscriptions granted automatically when an
+// account is created.
+const SubscriptionSourceNewUser = "new_user"
+
+// grantNewUserSubscriptionTx gives a freshly inserted user the configured new
+// user default plan inside the account-creation transaction. A missing plan is
+// skipped so a stale setting never blocks registration.
+func (user *User) grantNewUserSubscriptionTx(tx *gorm.DB) error {
+	planId := operation_setting.GetSubscriptionSetting().NewUserPlanId
+	if planId <= 0 || !operation_setting.IsPaymentComplianceConfirmed() {
+		return nil
+	}
+	plan, err := getSubscriptionPlanByIdTx(tx, planId)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		common.SysError(common.LogText("new user default subscription plan %d not found, skipped for user %s", planId, user.Username))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	sub, err := CreateUserSubscriptionFromPlanTx(tx, user.Id, plan, SubscriptionSourceNewUser)
+	if err != nil {
+		return err
+	}
+	if sub.UpgradeGroup != "" {
+		user.Group = sub.UpgradeGroup
+	}
+	return nil
 }
 
 func refreshSubscriptionUserGroupCache(userId int, operation string) {

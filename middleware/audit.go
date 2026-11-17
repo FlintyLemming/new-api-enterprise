@@ -93,6 +93,7 @@ var auditRouteActions = map[string]string{
 	"POST /api/subscription/admin/plans":    "subscription.plan_create",
 	"PUT /api/subscription/admin/plans/:id": "subscription.plan_update",
 	"POST /api/subscription/admin/bind":     "subscription.bind",
+	"PUT /api/subscription/admin/settings":  "subscription.settings_update",
 
 	// 日志
 	"POST /api/system-task/log-cleanup": "log.cleanup_start",

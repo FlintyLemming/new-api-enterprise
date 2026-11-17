@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -368,6 +369,46 @@ func AdminBindSubscription(c *gin.Context) {
 		return
 	}
 	subscriptionChangeSuccess(c, msg)
+}
+
+// ---- Admin: subscription settings ----
+
+type AdminSubscriptionSettingsRequest struct {
+	NewUserPlanId *int `json:"new_user_plan_id"`
+}
+
+func AdminGetSubscriptionSettings(c *gin.Context) {
+	common.ApiSuccess(c, gin.H{"new_user_plan_id": operation_setting.GetSubscriptionSetting().NewUserPlanId})
+}
+
+func AdminUpdateSubscriptionSettings(c *gin.Context) {
+	if !requirePaymentCompliance(c) {
+		return
+	}
+	var req AdminSubscriptionSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.NewUserPlanId == nil || *req.NewUserPlanId < 0 {
+		common.ApiErrorT(c, "Invalid parameters")
+		return
+	}
+	planId := *req.NewUserPlanId
+	if planId > 0 {
+		if _, err := model.GetSubscriptionPlanById(planId); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				common.ApiErrorT(c, "Subscription plan does not exist")
+				return
+			}
+			common.ApiError(c, err)
+			return
+		}
+	}
+	oldPlanId := operation_setting.GetSubscriptionSetting().NewUserPlanId
+	// UpdateOptionsBulk reports database write failures; UpdateOption does not.
+	if err := model.UpdateOptionsBulk(map[string]string{operation_setting.SubscriptionNewUserPlanIdOptionKey: strconv.Itoa(planId)}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "subscription.settings_update", map[string]any{"old_plan_id": oldPlanId, "new_plan_id": planId})
+	common.ApiSuccess(c, gin.H{"new_user_plan_id": planId})
 }
 
 // subscriptionChangeSuccess replies to an admin subscription change. notice
