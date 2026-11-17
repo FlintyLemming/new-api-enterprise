@@ -46,6 +46,7 @@
 | —（直接提交） | 渠道开关：Claude Messages 对话内 system 消息内联为 `<system-reminder>`，保住 DeepSeek 等上游前缀缓存 | `internal-only` | 未提交 | `62c9e13c8` | 2026-11-05 | [详情](patches/feat-inline-claude-system-messages.md) |
 | —（直接提交） | 流式：客户端在协议终止事件（如 `message_stop`）之后、上游 EOF 之前断开时按 `eof` 结束，不再误记 `client_gone` | `upstream-pending` | 未提交 | `ea09002bc`；rc.49 改写于 `c334b1f5e` | 2026-11-05 | [详情](patches/fix-stream-client-close-after-complete.md) |
 | —（直接提交） | 计费表达式 `is_workday(tz)`：按小米节假日 API 同步的中国大陆节假日/调休日历判断工作日，用于峰谷计价 | `internal-only` | 未提交 | `d4e7f7c18` | 2026-11-09 | [详情](patches/feat-cn-holiday-workday.md) |
+| `feat/new-user-default-subscription` | 新建账号（含 SSO 自动建号）在建号事务内自动获得管理员设定的默认订阅套餐；订阅管理页「设置」按钮配置 | `internal-only` | 未提交 | `3ecec49fc` | 2026-11-17 | [详情](patches/feat-new-user-default-subscription.md) |
 
 ## 已归档
 
