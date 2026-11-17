@@ -1,7 +1,11 @@
 package controller
 
 import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -9,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -100,6 +105,96 @@ func newUserSubscriptions(t *testing.T, userId int) []model.UserSubscription {
 	var subs []model.UserSubscription
 	require.NoError(t, model.DB.Where("user_id = ?", userId).Find(&subs).Error)
 	return subs
+}
+
+type subscriptionSettingsResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    struct {
+		NewUserPlanId int `json:"new_user_plan_id"`
+	} `json:"data"`
+}
+
+func callSubscriptionSettings(t *testing.T, handler gin.HandlerFunc, method string, body string) subscriptionSettingsResponse {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(method, "/api/subscription/admin/settings", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("id", 1)
+	c.Set("username", "root")
+	c.Set("role", common.RoleRootUser)
+	handler(c)
+	var response subscriptionSettingsResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response), recorder.Body.String())
+	return response
+}
+
+func storedNewUserPlanOption(t *testing.T) string {
+	t.Helper()
+	var option model.Option
+	err := model.DB.Where(&model.Option{Key: operation_setting.SubscriptionNewUserPlanIdOptionKey}).First(&option).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ""
+	}
+	require.NoError(t, err)
+	return option.Value
+}
+
+func TestNewUserDefaultSubscriptionSettingsAPI(t *testing.T) {
+	for _, dialect := range newUserSubscriptionDialects {
+		t.Run(dialect, func(t *testing.T) {
+			setupNewUserSubscriptionTest(t, dialect)
+			plan := seedNewUserPlan(t, "5h150M", "")
+			planIdText := strconv.Itoa(plan.Id)
+
+			saved := callSubscriptionSettings(t, AdminUpdateSubscriptionSettings, http.MethodPut, `{"new_user_plan_id": `+planIdText+`}`)
+			require.True(t, saved.Success, saved.Message)
+			assert.Equal(t, plan.Id, saved.Data.NewUserPlanId)
+			assert.Equal(t, plan.Id, operation_setting.GetSubscriptionSetting().NewUserPlanId)
+			assert.Equal(t, planIdText, storedNewUserPlanOption(t))
+
+			read := callSubscriptionSettings(t, AdminGetSubscriptionSettings, http.MethodGet, "")
+			require.True(t, read.Success, read.Message)
+			assert.Equal(t, plan.Id, read.Data.NewUserPlanId)
+
+			for name, body := range map[string]string{
+				"missing_field": `{}`,
+				"negative":      `{"new_user_plan_id": -1}`,
+				"not_a_number":  `{"new_user_plan_id": "x"}`,
+			} {
+				t.Run(name, func(t *testing.T) {
+					rejected := callSubscriptionSettings(t, AdminUpdateSubscriptionSettings, http.MethodPut, body)
+					assert.False(t, rejected.Success)
+					assert.Equal(t, "Invalid parameters", rejected.Message)
+					assert.Equal(t, plan.Id, operation_setting.GetSubscriptionSetting().NewUserPlanId)
+					assert.Equal(t, planIdText, storedNewUserPlanOption(t))
+				})
+			}
+
+			t.Run("unknown_plan", func(t *testing.T) {
+				rejected := callSubscriptionSettings(t, AdminUpdateSubscriptionSettings, http.MethodPut, `{"new_user_plan_id": 999999}`)
+				assert.False(t, rejected.Success)
+				assert.Equal(t, "Subscription plan does not exist", rejected.Message)
+				assert.Equal(t, plan.Id, operation_setting.GetSubscriptionSetting().NewUserPlanId)
+			})
+
+			t.Run("compliance_unconfirmed", func(t *testing.T) {
+				operation_setting.GetPaymentSetting().ComplianceConfirmed = false
+				t.Cleanup(func() { operation_setting.GetPaymentSetting().ComplianceConfirmed = true })
+				rejected := callSubscriptionSettings(t, AdminUpdateSubscriptionSettings, http.MethodPut, `{"new_user_plan_id": 0}`)
+				assert.False(t, rejected.Success)
+				assert.Equal(t, plan.Id, operation_setting.GetSubscriptionSetting().NewUserPlanId)
+			})
+
+			t.Run("zero_turns_off", func(t *testing.T) {
+				turnedOff := callSubscriptionSettings(t, AdminUpdateSubscriptionSettings, http.MethodPut, `{"new_user_plan_id": 0}`)
+				require.True(t, turnedOff.Success, turnedOff.Message)
+				assert.Equal(t, 0, operation_setting.GetSubscriptionSetting().NewUserPlanId)
+				assert.Equal(t, "0", storedNewUserPlanOption(t))
+			})
+		})
+	}
 }
 
 func TestNewUserDefaultSubscriptionGrant(t *testing.T) {
