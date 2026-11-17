@@ -654,6 +654,7 @@
   "model_price_helper result: %s": "model_price_helper 结果: %s",
   "model_price_helper_tiered result: model=%s preConsume=%d quotaBeforeGroup=%.2f groupRatio=%.2f tier=%s": "model_price_helper_tiered 结果: model=%s preConsume=%d quotaBeforeGroup=%.2f groupRatio=%.2f tier=%s",
   "models.dev parse failed from %s: %s": "解析 %s 返回的 models.dev 数据失败: %s",
+  "new user default subscription plan %d not found, skipped for user %s": "新用户默认订阅套餐 %d 不存在，跳过为用户 %s 发放",
   "no such user %s": "用户 %s 不存在",
   "no user exists, create a root user for you: username is root, password is 123456": "系统里还没有用户，已自动创建 root 账号：用户名 root，密码 123456",
   "non-200 from %s: %s": "%s 返回了非 200 状态: %s",
