@@ -402,7 +402,8 @@ func AdminUpdateSubscriptionSettings(c *gin.Context) {
 		}
 	}
 	oldPlanId := operation_setting.GetSubscriptionSetting().NewUserPlanId
-	if err := model.UpdateOption(operation_setting.SubscriptionNewUserPlanIdOptionKey, strconv.Itoa(planId)); err != nil {
+	// UpdateOptionsBulk reports database write failures; UpdateOption does not.
+	if err := model.UpdateOptionsBulk(map[string]string{operation_setting.SubscriptionNewUserPlanIdOptionKey: strconv.Itoa(planId)}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
