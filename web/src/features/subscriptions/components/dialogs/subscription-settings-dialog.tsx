@@ -63,6 +63,9 @@ export function SubscriptionSettingsDialog() {
   })
 
   const savedPlanId = settingsQuery.data?.new_user_plan_id
+  // Until the saved value is known, the select's default would read as
+  // "Do not grant" and saving would silently switch the feature off.
+  const settingsUnknown = savedPlanId === undefined
   useEffect(() => {
     if (isOpen && savedPlanId !== undefined) setPlanId(String(savedPlanId))
   }, [isOpen, savedPlanId])
@@ -98,7 +101,7 @@ export function SubscriptionSettingsDialog() {
           </Button>
           <Button
             onClick={() => mutation.mutate(Number(planId))}
-            disabled={settingsQuery.isLoading || mutation.isPending}
+            disabled={settingsUnknown || mutation.isPending}
           >
             {t('Save')}
           </Button>
@@ -115,7 +118,7 @@ export function SubscriptionSettingsDialog() {
             className='w-full'
             value={planId}
             onChange={(event) => setPlanId(event.target.value)}
-            disabled={settingsQuery.isLoading}
+            disabled={settingsUnknown}
           >
             <NativeSelectOption value='0'>
               {t('Do not grant')}

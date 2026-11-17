@@ -61,15 +61,29 @@ function plan(
   }
 }
 
-const complianceOptions = [
-  { key: 'payment_setting.compliance_confirmed', value: 'true' },
-  { key: 'payment_setting.compliance_terms_version', value: 'v1' },
-]
+function complianceOptions(confirmed: boolean) {
+  return [
+    { key: 'payment_setting.compliance_confirmed', value: String(confirmed) },
+    { key: 'payment_setting.compliance_terms_version', value: 'v1' },
+  ]
+}
 
-function mockReads(savedPlanId: number) {
+function mockReads(
+  savedPlanId: number,
+  options: { complianceConfirmed?: boolean; settingsFail?: boolean } = {}
+) {
   return vi.spyOn(api, 'get').mockImplementation(async (url: string) => {
     if (url === '/api/option/') {
-      return { data: { success: true, message: '', data: complianceOptions } }
+      return {
+        data: {
+          success: true,
+          message: '',
+          data: complianceOptions(options.complianceConfirmed ?? true),
+        },
+      }
+    }
+    if (url === '/api/subscription/admin/settings' && options.settingsFail) {
+      return { data: { success: false, message: 'Operation failed' } }
     }
     if (url === '/api/subscription/admin/plans') {
       return {
@@ -190,7 +204,33 @@ describe('subscription settings dialog', () => {
     await user.selectOptions(select, '1')
     await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
-    await waitFor(() => expect(put).toHaveBeenCalled())
+    expect(
+      await screen.findByText('Subscription plan does not exist')
+    ).toBeInTheDocument()
+    expect(put).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('a failed settings read disables saving so the setting is not overwritten', async () => {
+    mockReads(2, { settingsFail: true })
+    const put = vi.spyOn(api, 'put')
+    const { dialog, select } = await openSettings()
+
+    const save = within(dialog).getByRole('button', { name: 'Save' })
+    await waitFor(() => expect(select).toBeDisabled())
+    expect(save).toBeDisabled()
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it('unconfirmed compliance terms disable the settings button', async () => {
+    const get = mockReads(2, { complianceConfirmed: false })
+    renderPage()
+
+    const button = screen.getByRole('button', { name: 'Settings' })
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/option/'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Create Plan' })).toBeDisabled()
+    )
+    expect(button).toBeDisabled()
   })
 })
