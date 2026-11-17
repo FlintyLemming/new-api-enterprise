@@ -7400,6 +7400,12 @@
     "Zhipu": "智譜",
     "Zhipu GLM": "智譜GLM",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Subscription settings": "訂閱設定",
+    "New user default plan": "新使用者預設訂閱",
+    "Do not grant": "不發放",
+    "New accounts, including those created by SSO sign-in, automatically receive this plan. Existing users are not affected.": "新建立的帳號（含 SSO 登入自動建立）會自動獲得此套餐，既有使用者不受影響。",
+    "Updated subscription settings": "更新了訂閱設定",
+    "Subscription plan does not exist": "訂閱套餐不存在"
   }
 }

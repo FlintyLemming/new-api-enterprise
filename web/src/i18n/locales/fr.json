@@ -7400,6 +7400,12 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Subscription settings": "Paramètres d'abonnement",
+    "New user default plan": "Plan par défaut des nouveaux utilisateurs",
+    "Do not grant": "Ne pas attribuer",
+    "New accounts, including those created by SSO sign-in, automatically receive this plan. Existing users are not affected.": "Les nouveaux comptes, y compris ceux créés lors d'une connexion SSO, reçoivent automatiquement ce plan. Les utilisateurs existants ne sont pas concernés.",
+    "Updated subscription settings": "Paramètres d'abonnement mis à jour",
+    "Subscription plan does not exist": "Le plan d'abonnement n'existe pas"
   }
 }
